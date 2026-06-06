@@ -53,11 +53,11 @@ struct InstallSkillArgs {
 
 #[derive(clap::Args)]
 struct RunArgs {
-    /// Profile name from the user config.
+    /// Profile name from the selected config.
     #[arg(short, long)]
     profile: Option<String>,
 
-    /// Override the config file path.
+    /// Use this config file instead of config discovery.
     #[arg(long)]
     config: Option<PathBuf>,
 
@@ -72,7 +72,7 @@ struct RunArgs {
 
 #[derive(clap::Args)]
 struct ConfigArgs {
-    /// Override the config file path.
+    /// Use this config file instead of config discovery.
     #[arg(long)]
     config: Option<PathBuf>,
 }

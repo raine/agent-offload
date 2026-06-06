@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub mod discovery;
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -73,7 +75,15 @@ pub fn default_config_path() -> Result<PathBuf> {
 pub fn load_config(path: Option<&Path>) -> Result<(Config, PathBuf)> {
     let path = match path {
         Some(path) => path.to_path_buf(),
-        None => default_config_path()?,
+        None => {
+            let cwd = std::env::current_dir().context("could not read current directory")?;
+            let home = dirs::home_dir();
+            if let Some(path) = discovery::find_project_config(&cwd, home.as_deref())? {
+                path
+            } else {
+                default_config_path()?
+            }
+        }
     };
 
     if !path.exists() {

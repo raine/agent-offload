@@ -62,11 +62,18 @@ cargo install --git https://github.com/raine/agent-offload --locked
 
 ### 2. Create a config
 
-`agent-offload` reads:
+`agent-offload` selects a config in this order:
 
-```text
-~/.config/agent-offload/config.yaml
-```
+1. `--config <path>`
+2. The nearest `.agent-offload.yaml` in the current directory or an ancestor up to
+   your home directory
+3. `~/.config/agent-offload/config.yaml`
+
+A discovered project config replaces the user config completely. Configs are not
+merged.
+
+Project configs can contain commands and environment variables. Use `from_env`
+for secrets instead of committing literal secret values.
 
 See [Configuration](#configuration) for an example.
 
@@ -125,6 +132,19 @@ The delegated pane opens to the right of the tmux pane that runs
 Other panes in the window keep their existing layout scope.
 
 ## Configuration
+
+`agent-offload` selects a config in this order:
+
+1. `--config <path>`
+2. The nearest `.agent-offload.yaml` in the current directory or an ancestor up to
+   your home directory
+3. `~/.config/agent-offload/config.yaml`
+
+A discovered project config replaces the user config completely. Configs are not
+merged. Project discovery stops after checking your home directory.
+
+Project configs can contain commands and environment variables. Do not commit
+secrets in `.agent-offload.yaml`. Use `from_env` instead.
 
 A config has a default profile and one or more named profiles. This example
 uses Codex Spark and a DeepSeek-backed Claude Code profile:
@@ -245,11 +265,11 @@ agent-offload --profile claude "fix the failing tests"
 
 Options:
 
-| Option                 | Description                          |
-| ---------------------- | ------------------------------------ |
-| `-p, --profile <name>` | Profile name from the config         |
-| `--config <path>`      | Override the config file path        |
-| `-H, --headless`       | Run this invocation in headless mode |
+| Option                 | Description                             |
+| ---------------------- | --------------------------------------- |
+| `-p, --profile <name>` | Profile name from the selected config   |
+| `--config <path>`      | Use this config file instead of discovery |
+| `-H, --headless`       | Run this invocation in headless mode    |
 
 ### `profiles`
 
@@ -257,7 +277,7 @@ List configured profiles and mark the default.
 
 ```bash
 agent-offload profiles
-agent-offload profiles --config ./agent-offload.yaml
+agent-offload profiles --config ./.agent-offload.yaml
 ```
 
 ### `install-skill`
