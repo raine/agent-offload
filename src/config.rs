@@ -20,9 +20,22 @@ pub struct Profile {
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
-    pub env: BTreeMap<String, String>,
+    pub env: BTreeMap<String, EnvValue>,
     #[serde(default)]
     pub prompt: PromptDelivery,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum EnvValue {
+    Literal(String),
+    FromEnv(FromEnvValue),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FromEnvValue {
+    pub from_env: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
@@ -90,6 +103,16 @@ impl Config {
                 if !is_env_key(key) {
                     bail!("profile {name:?} has invalid env key {key:?}");
                 }
+            }
+
+            for value in profile.env.values() {
+                if let EnvValue::FromEnv(from_env) = value
+                    && !is_env_key(&from_env.from_env) {
+                        bail!(
+                            "profile {name:?} has invalid from_env name {:?}",
+                            from_env.from_env
+                        );
+                    }
             }
 
             if matches!(profile.prompt, PromptDelivery::PromptFileArg)
@@ -230,6 +253,40 @@ mod tests {
             r#"
             default_profile: default
             profiles: {}
+            "#,
+        )
+        .unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_from_env_value() {
+        let config: Config = serde_yaml::from_str(
+            r#"
+            default_profile: default
+            profiles:
+              default:
+                command: claude
+                env:
+                  API_KEY:
+                    from_env: MY_SECRET_KEY
+            "#,
+        )
+        .unwrap();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_invalid_from_env_name() {
+        let config: Config = serde_yaml::from_str(
+            r#"
+            default_profile: default
+            profiles:
+              default:
+                command: claude
+                env:
+                  API_KEY:
+                    from_env: "123invalid"
             "#,
         )
         .unwrap();

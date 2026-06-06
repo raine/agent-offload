@@ -11,8 +11,12 @@ pub struct RunDir {
 }
 
 pub fn create() -> Result<RunDir> {
-    let state_dir = dirs::state_dir().context("could not find user state directory")?;
-    let runs_dir = state_dir.join("agent-offload").join("runs");
+    let home = dirs::home_dir().context("could not find home directory")?;
+    let runs_dir = home
+        .join(".local")
+        .join("state")
+        .join("agent-offload")
+        .join("runs");
     fs::create_dir_all(&runs_dir).context("could not create run directory root")?;
 
     let millis = SystemTime::now()

@@ -1,4 +1,4 @@
-use crate::config::{AgentInterface, Profile, PromptDelivery};
+use crate::config::{AgentInterface, EnvValue, Profile, PromptDelivery};
 use anyhow::{Context, Result};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -13,7 +13,14 @@ pub fn write_launcher(profile: &Profile, prompt_file: &Path, launcher_file: &Pat
     script.push_str("PROMPT_CONTENT=$(cat \"$PROMPT_FILE\")\n\n");
 
     for (key, value) in &profile.env {
-        script.push_str(&format!("export {key}={}\n", sh_quote(value)));
+        match value {
+            EnvValue::Literal(s) => {
+                script.push_str(&format!("{key}={}\nexport {key}\n", sh_quote(s)));
+            }
+            EnvValue::FromEnv(from_env) => {
+                script.push_str(&format!("{key}=${{{}}}\nexport {key}\n", from_env.from_env));
+            }
+        }
     }
 
     script.push_str("\nexec ");
@@ -67,7 +74,7 @@ fn sh_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::PromptDelivery;
+    use crate::config::{EnvValue, PromptDelivery};
     use std::collections::BTreeMap;
     use tempfile::TempDir;
 
@@ -117,7 +124,10 @@ mod tests {
         let launcher_file = dir.path().join("launch.sh");
 
         let mut env = BTreeMap::new();
-        env.insert("API_KEY".to_string(), "secret".to_string());
+        env.insert(
+            "API_KEY".to_string(),
+            EnvValue::Literal("secret".to_string()),
+        );
         let profile = Profile {
             command: "tool".to_string(),
             interface: AgentInterface::Generic,
@@ -128,7 +138,33 @@ mod tests {
         write_launcher(&profile, &prompt_file, &launcher_file).unwrap();
 
         let script = fs::read_to_string(&launcher_file).unwrap();
-        assert!(script.contains("export API_KEY='secret'"));
+        assert!(script.contains("API_KEY='secret'\nexport API_KEY"));
+    }
+
+    #[test]
+    fn test_launcher_from_env_var() {
+        let dir = TempDir::new().unwrap();
+        let prompt_file = dir.path().join("prompt.md");
+        let launcher_file = dir.path().join("launch.sh");
+
+        let mut env = BTreeMap::new();
+        env.insert(
+            "API_KEY".to_string(),
+            EnvValue::FromEnv(crate::config::FromEnvValue {
+                from_env: "MY_SECRET_KEY".to_string(),
+            }),
+        );
+        let profile = Profile {
+            command: "tool".to_string(),
+            interface: AgentInterface::Generic,
+            args: vec![],
+            env,
+            prompt: PromptDelivery::Argument,
+        };
+        write_launcher(&profile, &prompt_file, &launcher_file).unwrap();
+
+        let script = fs::read_to_string(&launcher_file).unwrap();
+        assert!(script.contains("API_KEY=${MY_SECRET_KEY}\nexport API_KEY"));
     }
 
     #[test]
