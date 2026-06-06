@@ -107,12 +107,13 @@ impl Config {
 
             for value in profile.env.values() {
                 if let EnvValue::FromEnv(from_env) = value
-                    && !is_env_key(&from_env.from_env) {
-                        bail!(
-                            "profile {name:?} has invalid from_env name {:?}",
-                            from_env.from_env
-                        );
-                    }
+                    && !is_env_key(&from_env.from_env)
+                {
+                    bail!(
+                        "profile {name:?} has invalid from_env name {:?}",
+                        from_env.from_env
+                    );
+                }
             }
 
             if matches!(profile.prompt, PromptDelivery::PromptFileArg)

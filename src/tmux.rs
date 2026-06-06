@@ -47,6 +47,21 @@ pub fn pane_exists(pane_id: &str) -> Result<bool> {
     Ok(status.success())
 }
 
+pub fn kill_pane(pane_id: &str) -> Result<()> {
+    let output = Command::new("tmux")
+        .arg("kill-pane")
+        .arg("-t")
+        .arg(pane_id)
+        .output()
+        .context("could not run tmux kill-pane")?;
+
+    if !output.status.success() {
+        return tmux_error("kill-pane", output.stderr);
+    }
+
+    Ok(())
+}
+
 struct ActivePane {
     id: String,
     width: u16,

@@ -31,6 +31,9 @@ pub fn run(args: RunArgs) -> Result<()> {
 
     wait_for_done(&run_dir.done_file, &pane_id)?;
 
+    // Kill the delegated agent's pane -- it stays running after writing done.md
+    let _ = tmux::kill_pane(&pane_id);
+
     let summary = fs::read_to_string(&run_dir.done_file).unwrap_or_default();
     if summary.trim().is_empty() {
         println!("done: {}", run_dir.done_file.display());
