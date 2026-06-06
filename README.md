@@ -119,6 +119,9 @@ delegated agent to write a concise summary to `done.md.tmp`, then atomically
 rename it to `done.md`. The parent process waits for `done.md` to exist. If the
 tmux pane closes first, the run fails instead of hanging silently.
 
+The delegated pane opens on the right side of the tmux window that runs
+`agent-offload`, even if another tmux client is viewing a different window.
+
 ## Configuration
 
 A config has a default profile and one or more named profiles. This example

@@ -2,21 +2,15 @@ use anyhow::{Context, Result, bail};
 use std::path::Path;
 use std::process::Command;
 
-const MIN_RIGHT_SPLIT_WIDTH: u16 = 160;
-
 pub fn split_window(launcher_file: &Path, cwd: &Path) -> Result<String> {
-    let active = active_pane()?;
-    let split_flag = if active.width >= MIN_RIGHT_SPLIT_WIDTH {
-        "-h"
-    } else {
-        "-v"
-    };
+    let pane_id = agent_pane()?;
 
     let output = Command::new("tmux")
         .arg("split-window")
-        .arg(split_flag)
+        .arg("-h")
+        .arg("-f")
         .arg("-t")
-        .arg(&active.id)
+        .arg(&pane_id)
         .arg("-c")
         .arg(cwd)
         .arg("-P")
@@ -62,36 +56,24 @@ pub fn kill_pane(pane_id: &str) -> Result<()> {
     Ok(())
 }
 
-struct ActivePane {
-    id: String,
-    width: u16,
-}
-
-fn active_pane() -> Result<ActivePane> {
+fn agent_pane() -> Result<String> {
     let output = Command::new("tmux")
         .arg("display-message")
         .arg("-p")
-        .arg("#{pane_id} #{pane_width}")
+        .arg("#{pane_id}")
         .output()
-        .context("could not read active tmux pane")?;
+        .context("could not read agent tmux pane")?;
 
     if !output.status.success() {
         return tmux_error("display-message", output.stderr);
     }
 
-    let output = String::from_utf8_lossy(&output.stdout);
-    let mut parts = output.split_whitespace();
-    let id = parts
-        .next()
-        .context("tmux did not return pane id")?
-        .to_string();
-    let width = parts
-        .next()
-        .context("tmux did not return pane width")?
-        .parse()
-        .context("tmux returned an invalid pane width")?;
+    let pane_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if pane_id.is_empty() {
+        bail!("tmux did not return pane id");
+    }
 
-    Ok(ActivePane { id, width })
+    Ok(pane_id)
 }
 
 fn tmux_error<T>(command: &str, stderr: Vec<u8>) -> Result<T> {
