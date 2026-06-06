@@ -165,12 +165,10 @@ profiles:
     command: /Users/raine/.local/bin/cursor-agent
     interface: cursor
     args:
-      - --print
-      - --trust
+      - --force
       - --model
       - composer-2.5-fast
     env: {}
-    prompt: argument
 ```
 
 ### Profile fields
