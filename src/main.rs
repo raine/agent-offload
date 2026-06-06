@@ -19,6 +19,7 @@ const STYLES: Styles = Styles::styled()
 
 #[derive(Parser)]
 #[command(name = "agent-offload")]
+#[command(version)]
 #[command(about = "Launch coding agents in tmux panes and wait for completion")]
 #[command(styles = STYLES)]
 #[command(args_conflicts_with_subcommands = true)]

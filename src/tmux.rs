@@ -35,16 +35,16 @@ pub fn split_window(launcher_file: &Path, cwd: &Path) -> Result<String> {
 }
 
 pub fn pane_exists(pane_id: &str) -> Result<bool> {
-    let status = Command::new("tmux")
+    let output = Command::new("tmux")
         .arg("display-message")
         .arg("-t")
         .arg(pane_id)
         .arg("-p")
         .arg("#{pane_id}")
-        .status()
+        .output()
         .context("could not check tmux pane")?;
 
-    Ok(status.success())
+    Ok(output.status.success())
 }
 
 pub fn kill_pane(pane_id: &str) -> Result<()> {
