@@ -1,7 +1,7 @@
 # agent-offload
 
 Use `agent-offload` when implementation work can be delegated to a configured
-coding agent running in a nearby tmux pane.
+coding agent running in a nearby tmux pane or as a headless subprocess.
 
 ## Check profiles
 
@@ -16,21 +16,32 @@ clearly needs a named profile.
 
 ## Delegate work
 
-For short prompts:
+For short prompts in tmux mode:
 
 ```sh
 agent-offload run --profile <name> "implement the requested change"
+```
+
+For short prompts in headless mode:
+
+```sh
+agent-offload run --headless --profile <name> "implement the requested change"
 ```
 
 For long prompts or markdown plans:
 
 ```sh
 cat path/to/plan.md | agent-offload run --profile <name>
+cat path/to/plan.md | agent-offload run --headless --profile <name>
 ```
 
-The command blocks until the delegated agent writes its done file. When it
-returns, read the short summary printed by `agent-offload`, inspect the working
-tree, and verify the result before reporting success.
+Use headless mode for non-interactive subprocess execution. Use tmux mode when
+the delegated agent should run in a nearby pane.
+
+In tmux mode, the command blocks until the delegated agent writes its done file.
+In headless mode, the command blocks until the subprocess exits. When it returns,
+read the short summary printed by `agent-offload`, inspect the working tree, and
+verify the result before reporting success.
 
 ## Profiles
 

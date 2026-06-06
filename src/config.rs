@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub default_profile: String,
+    #[serde(default)]
+    pub headless: bool,
     pub profiles: BTreeMap<String, Profile>,
 }
 
@@ -23,6 +25,8 @@ pub struct Profile {
     pub env: BTreeMap<String, EnvValue>,
     #[serde(default)]
     pub prompt: PromptDelivery,
+    #[serde(default)]
+    pub headless: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -155,9 +159,11 @@ mod tests {
         let config: Config = serde_yaml::from_str(
             r#"
             default_profile: default
+            headless: true
             profiles:
               default:
                 command: claude
+                headless: true
             "#,
         )
         .unwrap();
@@ -165,6 +171,25 @@ mod tests {
 
         let (name, _) = config.resolve_profile(None).unwrap();
         assert_eq!(name, "default");
+        assert!(config.headless);
+        let (_, profile) = config.resolve_profile(None).unwrap();
+        assert!(profile.headless);
+    }
+
+    #[test]
+    fn test_headless_defaults_to_false() {
+        let config: Config = serde_yaml::from_str(
+            r#"
+            default_profile: default
+            profiles:
+              default:
+                command: claude
+            "#,
+        )
+        .unwrap();
+        assert!(!config.headless);
+        let (_, profile) = config.resolve_profile(None).unwrap();
+        assert!(!profile.headless);
     }
 
     #[test]
