@@ -1,4 +1,5 @@
 use crate::config;
+use crate::headless;
 use crate::launcher;
 use crate::prompt;
 use crate::run_dir;
@@ -14,6 +15,14 @@ pub fn run(args: RunArgs) -> Result<()> {
     let (config, config_path) = config::load_config(args.config.as_deref())?;
     let (profile_name, profile) = config.resolve_profile(args.profile.as_deref())?;
     let prompt = prompt::load_prompt(&args.prompt)?;
+    let headless_mode = args.headless || config.headless || profile.headless;
+
+    if headless_mode {
+        eprintln!("profile: {profile_name} (headless)");
+        eprintln!("config: {}", config_path.display());
+        let exit_code = headless::run_headless(profile, &prompt)?;
+        std::process::exit(exit_code);
+    }
 
     let run_dir = run_dir::create()?;
     let augmented_prompt = prompt::augment_prompt(&prompt, &run_dir.done_file);

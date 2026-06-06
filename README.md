@@ -6,10 +6,10 @@
   <a href="#commands">Commands</a>
 </p>
 
-`agent-offload` launches another coding agent in a nearby tmux pane, hands it a
-prompt, and blocks until that agent writes a completion file. Use it when your
-main agent wants to delegate implementation work while keeping the current
-conversation in control of review, verification, and final reporting.
+`agent-offload` launches another coding agent and blocks until that agent
+finishes. Use it when your main agent wants to delegate implementation work
+while keeping the current conversation in control of review, verification, and
+final reporting.
 
 ## Why?
 
@@ -22,18 +22,18 @@ Claude Code can delegate to subagents, but that keeps delegation inside Claude's
 own harness and model choices. If you want to use another model, another
 provider, or another agent CLI, there is no smooth handoff.
 
-`agent-offload` bridges that gap with tmux as the coordination layer. The host
-agent runs one blocking command, the delegated task opens in a new tmux pane or
-headless run, and the host agent waits until the task writes its completion
-summary. Then the host agent can inspect the diff, run checks, and continue the
-review in the original conversation.
+`agent-offload` bridges that gap with tmux or headless subprocess execution.
+The host agent runs one blocking command, the delegated task opens in a new tmux
+pane or runs headlessly, and the host agent waits until the task finishes. Then
+the host agent can inspect the diff, run checks, and continue the review in the
+original conversation.
 
 ## What it does
 
-- Launches configured agent profiles in a tmux split
+- Launches configured agent profiles in tmux or in headless mode
 - Sends prompts as an argument, stdin, or a prompt-file argument
-- Adds completion-file instructions to every delegated prompt
-- Waits until the delegated agent atomically publishes `done.md`
+- Adds completion-file instructions to tmux delegated prompts
+- Waits until the delegated agent exits or publishes `done.md`
 - Detects if the tmux pane exits before completion
 - Kills the delegated pane after completion
 - Supports per-profile environment variables, including forwarding from the host
@@ -107,10 +107,10 @@ The run directory contains:
 | `launch.sh` | The generated executable launcher script              |
 | `done.md`   | The completion summary written by the delegated agent |
 
-`agent-offload` appends instructions to the prompt telling the delegated agent to
-write a concise summary to `done.md.tmp`, then atomically rename it to `done.md`.
-The parent process waits for `done.md` to exist. If the tmux pane closes first,
-the run fails instead of hanging silently.
+In tmux mode, `agent-offload` appends instructions to the prompt telling the
+delegated agent to write a concise summary to `done.md.tmp`, then atomically
+rename it to `done.md`. The parent process waits for `done.md` to exist. If the
+tmux pane closes first, the run fails instead of hanging silently.
 
 ## Configuration
 
@@ -164,6 +164,7 @@ profiles:
 | `args`      | Extra arguments passed before the prompt     |
 | `env`       | Environment variables exported before launch |
 | `prompt`    | How the augmented prompt is delivered        |
+| `headless`  | Whether to run this profile without tmux      |
 
 ### Interfaces
 
@@ -222,10 +223,11 @@ agent-offload --profile claude "fix the failing tests"
 
 Options:
 
-| Option                 | Description                   |
-| ---------------------- | ----------------------------- |
-| `-p, --profile <name>` | Profile name from the config  |
-| `--config <path>`      | Override the config file path |
+| Option                 | Description                            |
+| ---------------------- | -------------------------------------- |
+| `-p, --profile <name>` | Profile name from the config           |
+| `--config <path>`      | Override the config file path          |
+| `-H, --headless`       | Run this invocation in headless mode   |
 
 ### `profiles`
 

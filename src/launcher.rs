@@ -85,6 +85,7 @@ mod tests {
             args: vec![],
             env: BTreeMap::new(),
             prompt: PromptDelivery::Argument,
+            headless: false,
         }
     }
 
@@ -134,6 +135,7 @@ mod tests {
             args: vec![],
             env,
             prompt: PromptDelivery::Argument,
+            headless: false,
         };
         write_launcher(&profile, &prompt_file, &launcher_file).unwrap();
 
@@ -160,6 +162,7 @@ mod tests {
             args: vec![],
             env,
             prompt: PromptDelivery::Argument,
+            headless: false,
         };
         write_launcher(&profile, &prompt_file, &launcher_file).unwrap();
 
@@ -192,6 +195,7 @@ mod tests {
             args: vec![],
             env: BTreeMap::new(),
             prompt: PromptDelivery::Stdin,
+            headless: false,
         };
         write_launcher(&profile, &prompt_file, &launcher_file).unwrap();
 
@@ -211,6 +215,7 @@ mod tests {
             args: vec!["--file".to_string(), "{prompt_file}".to_string()],
             env: BTreeMap::new(),
             prompt: PromptDelivery::PromptFileArg,
+            headless: false,
         };
         write_launcher(&profile, &prompt_file, &launcher_file).unwrap();
 

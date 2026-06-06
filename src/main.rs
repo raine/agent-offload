@@ -4,6 +4,7 @@ use clap::builder::styling::{AnsiColor, Effects, Styles};
 use std::path::PathBuf;
 
 mod config;
+mod headless;
 mod install_skill;
 mod launcher;
 mod prompt;
@@ -20,7 +21,7 @@ const STYLES: Styles = Styles::styled()
 #[derive(Parser)]
 #[command(name = "agent-offload")]
 #[command(version)]
-#[command(about = "Launch coding agents in tmux panes and wait for completion")]
+#[command(about = "Launch coding agents and wait for completion")]
 #[command(styles = STYLES)]
 #[command(args_conflicts_with_subcommands = true)]
 struct Cli {
@@ -52,6 +53,10 @@ struct RunArgs {
     /// Override the config file path.
     #[arg(long)]
     config: Option<PathBuf>,
+
+    /// Run headlessly without tmux.
+    #[arg(short = 'H', long)]
+    headless: bool,
 
     /// Prompt text. If omitted, the prompt is read from stdin.
     #[arg(trailing_var_arg = true)]
