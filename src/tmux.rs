@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use std::env;
 use std::path::Path;
 use std::process::Command;
 
@@ -8,7 +9,6 @@ pub fn split_window(launcher_file: &Path, cwd: &Path) -> Result<String> {
     let output = Command::new("tmux")
         .arg("split-window")
         .arg("-h")
-        .arg("-f")
         .arg("-t")
         .arg(&pane_id)
         .arg("-c")
@@ -57,20 +57,10 @@ pub fn kill_pane(pane_id: &str) -> Result<()> {
 }
 
 fn agent_pane() -> Result<String> {
-    let output = Command::new("tmux")
-        .arg("display-message")
-        .arg("-p")
-        .arg("#{pane_id}")
-        .output()
-        .context("could not read agent tmux pane")?;
-
-    if !output.status.success() {
-        return tmux_error("display-message", output.stderr);
-    }
-
-    let pane_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let pane_id = env::var("TMUX_PANE").context("could not read agent tmux pane")?;
+    let pane_id = pane_id.trim().to_string();
     if pane_id.is_empty() {
-        bail!("tmux did not return pane id");
+        bail!("TMUX_PANE is empty");
     }
 
     Ok(pane_id)
