@@ -55,12 +55,6 @@ brew install raine/agent-offload/agent-offload
 cargo install --git https://github.com/raine/agent-offload --locked
 ```
 
-For local development, symlink the debug binary:
-
-```bash
-just install-dev
-```
-
 ### 2. Create a config
 
 `agent-offload` reads:
@@ -87,27 +81,15 @@ Then use `/agent-offload` from Claude Code, or call the CLI directly.
 
 ### 4. Delegate work
 
-```bash
-agent-offload run --profile claude "implement the change in history/plan.md"
-```
-
-For longer prompts:
-
-```bash
-cat history/plan.md | agent-offload run --profile claude
-```
-
-The command prints metadata on stderr while it waits:
+From Claude Code, invoke the installed skill:
 
 ```text
-profile: claude
-config: /Users/you/.config/agent-offload/config.yaml
-pane: %42
-run dir: /Users/you/.local/state/agent-offload/runs/1780738240570-50003
-waiting for: /Users/you/.local/state/agent-offload/runs/1780738240570-50003/done.md
+/agent-offload implement the change in history/plan.md
 ```
 
-When the delegated agent finishes, its short summary is printed on stdout.
+The host agent loads the skill, chooses a configured profile, runs
+`agent-offload`, waits for the delegated agent's summary, then reviews and
+reports the result in the current conversation.
 
 ## How it works
 
@@ -269,16 +251,15 @@ matches the bundled copy.
 
 A typical host-agent workflow looks like this:
 
-```bash
-# 1. Write or identify a concrete plan
-$EDITOR history/2026-06-06-plan-feature.md
+```text
+> /agent-offload implement the plan in history/2026-06-06-plan-feature.md with the spark profile
 
-# 2. Delegate implementation
-cat history/2026-06-06-plan-feature.md | agent-offload run --profile codex-spark
-
-# 3. Review the result in the current session
-git diff
-just check
+The host agent:
+1. Loads the `agent-offload` skill
+2. Pipes the plan into `agent-offload run --profile codex-spark`
+3. Waits for the delegated agent's completion summary
+4. Inspects the diff and runs the requested checks
+5. Reports the reviewed result
 ```
 
 The delegated agent should do the implementation. The host agent should still
@@ -305,7 +286,6 @@ Useful commands:
 ```bash
 just run --help
 just run profiles --config history/2026-06-06-sample-config.yaml
-just install-dev
 ```
 
 ## Related projects
