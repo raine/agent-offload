@@ -13,10 +13,10 @@ final reporting.
 
 ## Why?
 
-Sometimes you already have a thorough Markdown plan, and implementing it with a
-heavy, slow model is overkill. The host agent should be able to hand that work
-to a cheaper and faster model directly, without user manually starting a new
-Codex, OpenCode, or other agent session.
+When you have a thorough Markdown plan, implementing it with a heavy, slow model
+is overkill. The host agent should be able to hand that work to a cheaper and
+faster model directly, without user manually starting a new Codex, OpenCode, or
+other agent session.
 
 Claude Code can delegate to subagents, but that keeps delegation inside Claude's
 own harness and model choices. Other agent harnesses have their own delegation
@@ -185,7 +185,7 @@ profiles:
 | `args`      | Extra arguments passed before the prompt     |
 | `env`       | Environment variables exported before launch |
 | `prompt`    | How the augmented prompt is delivered        |
-| `headless`  | Whether to run this profile without tmux      |
+| `headless`  | Whether to run this profile without tmux     |
 
 ### Interfaces
 
@@ -245,11 +245,11 @@ agent-offload --profile claude "fix the failing tests"
 
 Options:
 
-| Option                 | Description                            |
-| ---------------------- | -------------------------------------- |
-| `-p, --profile <name>` | Profile name from the config           |
-| `--config <path>`      | Override the config file path          |
-| `-H, --headless`       | Run this invocation in headless mode   |
+| Option                 | Description                          |
+| ---------------------- | ------------------------------------ |
+| `-p, --profile <name>` | Profile name from the config         |
+| `--config <path>`      | Override the config file path        |
+| `-H, --headless`       | Run this invocation in headless mode |
 
 ### `profiles`
 
