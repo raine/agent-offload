@@ -3,12 +3,12 @@
 Use `agent-offload` when implementation work can be delegated to a configured
 coding agent running in a nearby tmux pane.
 
-## Check profiles
+## Profiles
 
-Run:
+Configured profiles available in this environment:
 
-```sh
-agent-offload profiles
+```
+!`agent-offload profiles`
 ```
 
 Use the default profile unless the user asks for a specific one or the task
@@ -32,7 +32,7 @@ The command blocks until the delegated agent writes its done file. When it
 returns, read the short summary printed by `agent-offload`, inspect the working
 tree, and verify the result before reporting success.
 
-## Profiles
+## Profile configuration
 
 A profile can point at a custom binary and declare the agent interface it
 follows. For example, a `claude-deepseek` binary can use `interface: claude`.
