@@ -40,8 +40,15 @@ enum Commands {
     /// List configured profiles.
     Profiles(ConfigArgs),
 
-    /// Install the bundled Claude Code skill.
-    InstallSkill,
+    /// Install the bundled skill for supported providers.
+    InstallSkill(InstallSkillArgs),
+}
+
+#[derive(clap::Args)]
+struct InstallSkillArgs {
+    /// Install only this provider.
+    #[arg(long, value_enum)]
+    provider: Option<install_skill::Provider>,
 }
 
 #[derive(clap::Args)]
@@ -76,7 +83,7 @@ fn main() -> Result<()> {
     match cli.command {
         Some(Commands::Run(args)) => run::run(args),
         Some(Commands::Profiles(args)) => run::profiles(args),
-        Some(Commands::InstallSkill) => install_skill::run(),
+        Some(Commands::InstallSkill(args)) => install_skill::run(args.provider),
         None => run::run(cli.run),
     }
 }

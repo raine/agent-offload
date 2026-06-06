@@ -42,7 +42,7 @@ review in the original conversation.
 - Kills the delegated pane after completion
 - Supports per-profile environment variables, including forwarding from the host
   environment
-- Installs its Claude Code skill with `agent-offload install-skill`
+- Installs its provider-agnostic skill bundle with `agent-offload install-skill`
 
 ## Quick start
 
@@ -79,9 +79,12 @@ This writes:
 
 ```text
 ~/.claude/skills/agent-offload/SKILL.md
+~/.config/opencode/skills/agent-offload/SKILL.md
+~/.codex/skills/agent-offload/SKILL.md
+~/.pi/agent/skills/agent-offload/SKILL.md
 ```
 
-Then use `/agent-offload` from Claude Code, or call the CLI directly.
+Then use `/agent-offload` from your host agent UI, or call the CLI directly.
 
 ### 4. Delegate work
 
@@ -244,10 +247,14 @@ agent-offload profiles --config ./agent-offload.yaml
 
 ### `install-skill`
 
-Install the bundled Claude Code skill.
+Install the bundled skill for one provider or all detected providers.
 
 ```bash
 agent-offload install-skill
+```
+
+```bash
+agent-offload install-skill --provider claude
 ```
 
 The command is idempotent. It prints `up-to-date` when the installed skill

@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command;
 
 #[test]
@@ -26,7 +27,34 @@ fn test_install_skill_help() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Install the bundled Claude Code skill"));
+    assert!(stdout.contains("Install the bundled skill"));
+}
+
+#[test]
+fn test_install_skill_provider_flag_writes_target() {
+    let home = tempfile::tempdir().unwrap();
+    let home_dir = home.path();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_agent-offload"))
+        .arg("install-skill")
+        .arg("--provider")
+        .arg("claude")
+        .env("HOME", home_dir)
+        .output()
+        .expect("failed to run agent-offload install-skill --provider claude");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let expected = Path::new(home_dir).join(".claude/skills/agent-offload/SKILL.md");
+    assert!(expected.exists());
+    assert_eq!(
+        std::fs::read_to_string(&expected).unwrap(),
+        include_str!("../skills/agent-offload/SKILL.md")
+    );
 }
 
 #[test]
