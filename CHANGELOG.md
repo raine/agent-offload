@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.7 (2026-06-07)
+
+- Delegated tmux panes now choose the neighboring pane when it better preserves the current layout.
+
 ## v0.1.6 (2026-06-07)
 
 - Tmux runs now fail promptly if the delegated pane closes before reporting completion instead of waiting forever.
