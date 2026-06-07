@@ -6,10 +6,11 @@ use crate::run_dir;
 use crate::tmux;
 use crate::{ConfigArgs, RunArgs};
 use anyhow::{Context, Result, bail};
+use chrono::{SecondsFormat, Utc};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 pub fn run(args: RunArgs) -> Result<()> {
     let (config, config_path) = config::load_config(args.config.as_deref())?;
@@ -101,14 +102,10 @@ fn trust_cursor_workspace(workspace: &Path) -> Result<()> {
         .with_context(|| format!("could not resolve parent for {}", marker.display()))?;
     fs::create_dir_all(parent).with_context(|| format!("could not create {}", parent.display()))?;
 
-    let trusted_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("system clock is before unix epoch")?
-        .as_secs()
-        .to_string();
     let content = serde_json::json!({
-        "trustedAt": trusted_at,
+        "trustedAt": Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
         "workspacePath": workspace.display().to_string(),
+        "trustMethod": "cli-flag",
     });
     let data =
         serde_json::to_vec_pretty(&content).context("could not encode cursor trust marker")?;

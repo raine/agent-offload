@@ -14,6 +14,7 @@ serde_yaml = "0.9"
 anyhow = "1.0"
 thiserror = "2.0"
 dirs = "6.0"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 tempfile = "3.14"
