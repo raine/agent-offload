@@ -93,9 +93,6 @@ fn wait_for_done(done_file: &Path, pane_id: &str) -> Result<()> {
 fn trust_cursor_workspace(workspace: &Path) -> Result<()> {
     let data_dir = cursor_data_dir()?;
     let marker = cursor_trust_marker_path(&data_dir, workspace);
-    if marker.exists() {
-        return Ok(());
-    }
 
     let parent = marker
         .parent()
