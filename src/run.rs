@@ -74,19 +74,38 @@ pub fn profiles(args: ConfigArgs) -> Result<()> {
 }
 
 fn wait_for_done(done_file: &Path, pane_id: &str) -> Result<()> {
+    wait_for_done_with_status(
+        done_file,
+        pane_id,
+        || tmux::pane_status(pane_id),
+        Duration::from_millis(500),
+    )
+}
+
+fn wait_for_done_with_status(
+    done_file: &Path,
+    pane_id: &str,
+    mut pane_status: impl FnMut() -> Result<tmux::PaneStatus>,
+    poll_interval: Duration,
+) -> Result<()> {
     loop {
         if done_file.exists() {
             return Ok(());
         }
 
-        if !tmux::pane_exists(pane_id)? {
-            bail!(
+        match pane_status()? {
+            tmux::PaneStatus::Alive => {}
+            tmux::PaneStatus::Dead => bail!(
+                "tmux pane {pane_id} is dead before writing {}",
+                done_file.display()
+            ),
+            tmux::PaneStatus::Missing => bail!(
                 "tmux pane {pane_id} closed before writing {}",
                 done_file.display()
-            );
+            ),
         }
 
-        thread::sleep(Duration::from_millis(500));
+        thread::sleep(poll_interval);
     }
 }
 
@@ -156,6 +175,8 @@ fn slug_workspace_path(path: &Path) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::time::Duration;
+    use tempfile::tempdir;
 
     #[test]
     fn test_cursor_trust_marker_path_uses_cursor_project_slug() {
@@ -168,5 +189,70 @@ mod tests {
                 "/tmp/home/.cursor/projects/Users-raine-code-sideagent-worktrees-project-configs/.workspace-trusted"
             )
         );
+    }
+
+    #[test]
+    fn test_wait_for_done_returns_when_done_file_exists() {
+        let dir = tempdir().unwrap();
+        let done_file = dir.path().join("done.md");
+        std::fs::write(&done_file, "done").unwrap();
+
+        wait_for_done_with_status(
+            &done_file,
+            "%123",
+            || panic!("status should not be checked"),
+            Duration::ZERO,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_wait_for_done_returns_when_done_file_appears_after_alive_status() {
+        let dir = tempdir().unwrap();
+        let done_file = dir.path().join("done.md");
+        let done_file_for_status = done_file.clone();
+
+        wait_for_done_with_status(
+            &done_file,
+            "%123",
+            || {
+                std::fs::write(&done_file_for_status, "done").unwrap();
+                Ok(tmux::PaneStatus::Alive)
+            },
+            Duration::ZERO,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_wait_for_done_errors_when_pane_is_dead() {
+        let dir = tempdir().unwrap();
+        let done_file = dir.path().join("done.md");
+
+        let error = wait_for_done_with_status(
+            &done_file,
+            "%123",
+            || Ok(tmux::PaneStatus::Dead),
+            Duration::ZERO,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("tmux pane %123 is dead"));
+    }
+
+    #[test]
+    fn test_wait_for_done_errors_when_pane_is_missing() {
+        let dir = tempdir().unwrap();
+        let done_file = dir.path().join("done.md");
+
+        let error = wait_for_done_with_status(
+            &done_file,
+            "%123",
+            || Ok(tmux::PaneStatus::Missing),
+            Duration::ZERO,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("tmux pane %123 closed"));
     }
 }

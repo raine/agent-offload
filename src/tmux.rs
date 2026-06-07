@@ -28,17 +28,36 @@ pub fn split_window(launcher_file: &Path, cwd: &Path) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-pub fn pane_exists(pane_id: &str) -> Result<bool> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneStatus {
+    Alive,
+    Dead,
+    Missing,
+}
+
+pub fn pane_status(pane_id: &str) -> Result<PaneStatus> {
     let output = Command::new("tmux")
         .arg("display-message")
         .arg("-t")
         .arg(pane_id)
         .arg("-p")
-        .arg("#{pane_id}")
+        .arg("#{pane_dead}")
         .output()
         .context("could not check tmux pane")?;
 
-    Ok(output.status.success())
+    if !output.status.success() {
+        return Ok(PaneStatus::Missing);
+    }
+
+    Ok(parse_pane_status(&output.stdout))
+}
+
+fn parse_pane_status(stdout: &[u8]) -> PaneStatus {
+    if String::from_utf8_lossy(stdout).trim() == "1" {
+        PaneStatus::Dead
+    } else {
+        PaneStatus::Alive
+    }
 }
 
 pub fn kill_pane(pane_id: &str) -> Result<()> {
@@ -69,4 +88,19 @@ fn agent_pane() -> Result<String> {
 fn tmux_error<T>(command: &str, stderr: Vec<u8>) -> Result<T> {
     let stderr = String::from_utf8_lossy(&stderr);
     bail!("tmux {command} failed: {stderr}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_pane_status_alive() {
+        assert_eq!(parse_pane_status(b"0\n"), PaneStatus::Alive);
+    }
+
+    #[test]
+    fn test_parse_pane_status_dead() {
+        assert_eq!(parse_pane_status(b"1\n"), PaneStatus::Dead);
+    }
 }
