@@ -149,10 +149,13 @@ adding metadata, JSONL events, raw logs, tmux pane capture, summaries, and
 | `composer-2.5-fast`     |    2m 1.16s | Fastest typical run, best typical host score, and safest default choice from this benchmark. |
 | `gpt-5.3-codex-spark`   |   2m 58.32s | Produced the best single attempt, but reviewers disagreed strongly about that result.        |
 | `deepseek-v4-flash[1m]` |   6m 29.23s | Completed every trial, but was slower and had the lowest typical host score.                 |
+| `gpt-5.5`               |   6m 43.33s | Low effort Codex passed checks, but failed acceptance in every trial.                        |
+| `gpt-5.4-mini`          |   7m 49.72s | Passed checks, but was slowest and failed acceptance in every trial.                         |
 
 The main failures were subtle implementation issues, not obvious missing
-features: parsing real streamed output, avoiding large log reads, and cleaning up
-child processes or tmux panes after errors.
+features: parsing real streamed output, avoiding large log reads, preserving the
+CLI contract end-to-end, and cleaning up child processes or tmux panes after
+errors.
 
 This is one benchmark on one implementation task, not a universal model ranking.
 For this project, `composer-2.5-fast` looked like the safest default starting
