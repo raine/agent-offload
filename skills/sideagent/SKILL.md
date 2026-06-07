@@ -19,13 +19,13 @@ clearly needs a named profile.
 For short prompts:
 
 ```sh
-sideagent run --profile <name> "implement the requested change"
+sideagent --profile <name> "implement the requested change"
 ```
 
 For long prompts or markdown plans:
 
 ```sh
-cat path/to/plan.md | sideagent run --profile <name>
+cat path/to/plan.md | sideagent --profile <name>
 ```
 
 The command blocks until the delegated agent writes its done file. When it
