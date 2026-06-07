@@ -20,11 +20,11 @@ other agent session.
 
 Claude Code can delegate to subagents, but that keeps delegation inside Claude's
 own harness and model choices. Other agent harnesses have their own delegation
-mechanisms, assumptions, and model support. For example, you might be inside
-Claude Code with a plan ready to implement, but want Codex Spark or a DeepSeek V4
-backed agent to do the edit. The host agent should be able to start that run,
-pass the plan, wait for completion, and review the result without asking the user
-to open and manage a separate session.
+mechanisms and model support. For example, you might be inside Claude Code with
+a plan ready to implement, but want Codex Spark or a DeepSeek V4 backed agent to
+do the edit. The host agent should be able to start that run, pass the plan,
+wait for completion, and review the result without asking the user to open and
+manage a separate session.
 
 `sideagent` makes offloading harness agnostic by using process execution as
 the boundary. The host agent runs one blocking command, the delegated task opens
@@ -400,6 +400,8 @@ just run profiles --config history/2026-06-06-sample-config.yaml
 
 ## Related projects
 
+- [claude-history](https://github.com/raine/claude-history) - search, inspect, and resume Claude Code conversations
 - [consult-llm](https://github.com/raine/consult-llm) - ask other LLMs for planning, review, and debugging help
 - [git-surgeon](https://github.com/raine/git-surgeon) - non-interactive hunk staging and commit surgery for agents
+- [tmux-agent-usage](https://github.com/raine/tmux-agent-usage) - show AI agent rate limit usage in tmux status bars
 - [workmux](https://github.com/raine/workmux) - git worktrees and tmux windows for parallel agent workflows
