@@ -21,7 +21,7 @@ const STYLES: Styles = Styles::styled()
 #[derive(Parser)]
 #[command(name = "sideagent")]
 #[command(version)]
-#[command(about = "Launch coding agents and wait for completion")]
+#[command(about = "Run another coding agent from your current session")]
 #[command(styles = STYLES)]
 #[command(args_conflicts_with_subcommands = true)]
 struct Cli {

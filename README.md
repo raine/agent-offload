@@ -148,8 +148,7 @@ CLI contract end-to-end, and cleaning up child processes or tmux panes after
 errors.
 
 This is one benchmark on one implementation task, not a universal model ranking.
-For this project, `composer-2.5-fast` looked like the safest default starting
-point. See the
+See the
 [full benchmark report](https://gist.github.com/raine/85ceb6d752baca6e03b9a7e0b4eb5e0d)
 for methodology, timings, reviews, and limitations.
 
@@ -388,8 +387,8 @@ just run profiles --config history/2026-06-06-sample-config.yaml
 
 ## Related projects
 
-- [claude-history](https://github.com/raine/claude-history) - search, inspect, and resume Claude Code conversations
+- [workmux](https://github.com/raine/workmux) - git worktrees and tmux windows for parallel agent workflows
 - [consult-llm](https://github.com/raine/consult-llm) - ask other LLMs for planning, review, and debugging help
+- [claude-history](https://github.com/raine/claude-history) - search, inspect, and resume Claude Code conversations
 - [git-surgeon](https://github.com/raine/git-surgeon) - non-interactive hunk staging and commit surgery for agents
 - [tmux-agent-usage](https://github.com/raine/tmux-agent-usage) - show AI agent rate limit usage in tmux status bars
-- [workmux](https://github.com/raine/workmux) - git worktrees and tmux windows for parallel agent workflows

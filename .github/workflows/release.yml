@@ -107,7 +107,7 @@ jobs:
           mkdir -p tap/Formula
           cat > tap/Formula/sideagent.rb << EOF
           class Sideagent < Formula
-            desc "Launch coding agents in tmux panes and wait for completion"
+            desc "Run another coding agent from your current session"
             homepage "https://github.com/raine/sideagent"
             version "${VERSION}"
             license "MIT"

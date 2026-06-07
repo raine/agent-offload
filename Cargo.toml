@@ -3,7 +3,7 @@ name = "sideagent"
 version = "0.1.5"
 edition = "2024"
 authors = [""]
-description = "Launch coding agents in tmux panes and wait for completion"
+description = "Run another coding agent from your current session"
 license = "MIT"
 
 [dependencies]
