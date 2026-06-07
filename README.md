@@ -12,10 +12,10 @@ while keeping the current conversation in control of review and verification.
 
 ## Why?
 
-When you have a thorough Markdown plan, implementing it with a heavy, slow model
-is overkill. The host agent should be able to hand that work to a cheaper and
-faster model directly, without user manually starting a new Codex, OpenCode, or
-other agent session.
+When you have a thorough implementation plan, the default model can be overkill
+for the edit pass. The host agent should be able to hand that work to a cheaper
+or faster model directly, without the user manually starting a new Codex,
+OpenCode, or other agent session.
 
 Claude Code can delegate to subagents, but that keeps delegation inside Claude's
 own harness and model choices. Other agent harnesses have their own delegation
@@ -25,11 +25,11 @@ do the edit. The host agent should be able to start that run, pass the plan,
 wait for completion, and review the result without asking the user to open and
 manage a separate session.
 
-`sideagent` makes offloading harness agnostic by using process execution as
-the boundary. The host agent runs one blocking command, the delegated task opens
-in a new tmux pane or runs headlessly, and the host agent waits until the task
-completes. Then the host agent can inspect the diff, run checks, and continue
-the review in the original conversation.
+`sideagent` makes offloading harness agnostic by starting the configured agent
+CLI as a process. The host agent runs one blocking command, and the delegated
+task opens in a new tmux pane or runs headlessly. When the run finishes, the
+host agent can inspect the diff, run checks, and continue the review in the
+original conversation.
 
 ![sideagent opening a delegated implementation run in tmux](meta/sideagent-tmux-delegation-20260607-v2.webp)
 
@@ -58,20 +58,19 @@ cargo install --git https://github.com/raine/sideagent --locked
 
 ### 2. Create a config
 
-`sideagent` selects a config in this order:
+Create `.sideagent.yaml` in your project:
 
-1. `--config <path>`
-2. The nearest `.sideagent.yaml` in the current directory or an ancestor up to
-   your home directory
-3. `~/.config/sideagent/config.yaml`
+```yaml
+profiles:
+  codex-spark:
+    command: codex
+    args:
+      - --model
+      - gpt-5.1-codex-mini
+```
 
-A discovered project config replaces the user config completely. Configs are not
-merged.
-
-Project configs can contain commands and environment variables. Use `from_env`
-for secrets instead of committing literal secret values.
-
-See [Configuration](#configuration) for an example.
+Project configs replace user configs. See [Configuration](#configuration) for
+the full discovery order, environment variables, and profile options.
 
 ### 3. Install the skill
 
@@ -79,21 +78,9 @@ See [Configuration](#configuration) for an example.
 sideagent install-skill
 ```
 
-Without `--provider`, this installs to every detected provider config
-directory. A provider is detected when its config directory already exists. Use
-`--provider` to install for one provider even if its config directory has not
-been created yet.
-
-Default install paths are:
-
-```text
-~/.claude/skills/sideagent/SKILL.md
-~/.config/opencode/skills/sideagent/SKILL.md
-~/.codex/skills/sideagent/SKILL.md
-~/.pi/agent/skills/sideagent/SKILL.md
-```
-
-Then use `/sideagent` from your host agent UI, or call the CLI directly.
+This adds `/sideagent` to every supported host agent with an existing config
+directory. See [`install-skill`](#install-skill) for provider-specific installs
+and default paths.
 
 ### 4. Delegate work
 
