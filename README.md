@@ -8,8 +8,7 @@
 
 `sideagent` launches another coding agent and blocks until that agent
 completes. Use it when your main agent wants to delegate implementation work
-while keeping the current conversation in control of review, verification, and
-final reporting.
+while keeping the current conversation in control of review and verification.
 
 ## Why?
 
@@ -140,8 +139,10 @@ Other panes in the window keep their existing layout scope.
 
 ## One-off benchmark
 
-A small real-world benchmark helped choose a model for implementation work. Each
-model got three isolated attempts at the same
+Out of curiosity, I ran a small real-world benchmark using the kind of
+implementation work `sideagent` is meant to delegate. The task started from a
+thorough implementation plan that had already been reviewed by multiple models.
+Each model got three isolated attempts at the same
 [run archive implementation plan](https://gist.github.com/raine/2c94e39be2e491663346c759c87a05e6):
 adding metadata, JSONL events, raw logs, tmux pane capture, summaries, and
 `runs` / `show` commands.
