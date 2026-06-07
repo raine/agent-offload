@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# agent-offload installation script
-# Usage: curl -fsSL https://raw.githubusercontent.com/raine/agent-offload/main/scripts/install.sh | bash
+# sideagent installation script
+# Usage: curl -fsSL https://raw.githubusercontent.com/raine/sideagent/main/scripts/install.sh | bash
 #
 # Environment variables:
-#   AGENT_OFFLOAD_VERSION      - Pin a specific version (e.g., v0.1.0)
-#   AGENT_OFFLOAD_INSTALL_DIR  - Override install directory (default: /usr/local/bin or ~/.local/bin)
+#   SIDEAGENT_VERSION      - Pin a specific version (e.g., v0.1.0)
+#   SIDEAGENT_INSTALL_DIR  - Override install directory (default: /usr/local/bin or ~/.local/bin)
 #
 # Examples:
-#   AGENT_OFFLOAD_VERSION=v0.1.0 bash install.sh
-#   AGENT_OFFLOAD_INSTALL_DIR=/opt/bin bash install.sh
+#   SIDEAGENT_VERSION=v0.1.0 bash install.sh
+#   SIDEAGENT_INSTALL_DIR=/opt/bin bash install.sh
 #
 
 set -e
@@ -49,9 +49,9 @@ detect_platform() {
 	*)
 		log_error "Unsupported operating system: $(uname -s)"
 		echo ""
-		echo "agent-offload supports macOS and Linux."
+		echo "sideagent supports macOS and Linux."
 		echo "For other platforms, try building from source with Cargo:"
-		echo "  cargo install --git https://github.com/raine/agent-offload"
+		echo "  cargo install --git https://github.com/raine/sideagent"
 		echo ""
 		exit 1
 		;;
@@ -67,9 +67,9 @@ detect_platform() {
 	*)
 		log_error "Unsupported architecture: $(uname -m)"
 		echo ""
-		echo "agent-offload prebuilt binaries are available for amd64 and arm64."
+		echo "sideagent prebuilt binaries are available for amd64 and arm64."
 		echo "For other architectures, try building from source with Cargo:"
-		echo "  cargo install --git https://github.com/raine/agent-offload"
+		echo "  cargo install --git https://github.com/raine/sideagent"
 		echo ""
 		exit 1
 		;;
@@ -79,18 +79,18 @@ detect_platform() {
 }
 
 install_from_release() {
-	log_info "Installing agent-offload from GitHub releases..."
+	log_info "Installing sideagent from GitHub releases..."
 
 	local platform=$1
 	local tmp_dir
 	tmp_dir=$(mktemp -d)
 	trap 'rm -rf "$tmp_dir"' EXIT
 
-	local version="${AGENT_OFFLOAD_VERSION:-}"
+	local version="${SIDEAGENT_VERSION:-}"
 
 	if [ -z "$version" ]; then
 		log_info "Fetching latest release..."
-		local latest_url="https://api.github.com/repos/raine/agent-offload/releases/latest"
+		local latest_url="https://api.github.com/repos/raine/sideagent/releases/latest"
 		local release_json
 
 		if command -v curl &>/dev/null; then
@@ -109,7 +109,7 @@ install_from_release() {
 			echo ""
 			echo "This might be due to network issues or GitHub API rate limits."
 			echo "You can specify a version manually:"
-			echo "  AGENT_OFFLOAD_VERSION=v0.1.0 bash install.sh"
+			echo "  SIDEAGENT_VERSION=v0.1.0 bash install.sh"
 			echo ""
 			exit 1
 		fi
@@ -117,8 +117,8 @@ install_from_release() {
 
 	log_info "Installing version: $version"
 
-	local archive_name="agent-offload-${platform}.tar.gz"
-	local download_url="https://github.com/raine/agent-offload/releases/download/${version}/${archive_name}"
+	local archive_name="sideagent-${platform}.tar.gz"
+	local download_url="https://github.com/raine/sideagent/releases/download/${version}/${archive_name}"
 
 	log_info "Downloading $archive_name..."
 
@@ -129,7 +129,7 @@ install_from_release() {
 			echo ""
 			echo "The release may not have a prebuilt binary for your platform."
 			echo "Try installing with Cargo instead:"
-			echo "  cargo install --git https://github.com/raine/agent-offload"
+			echo "  cargo install --git https://github.com/raine/sideagent"
 			echo ""
 			cd - >/dev/null || cd "$HOME"
 			exit 1
@@ -140,7 +140,7 @@ install_from_release() {
 			echo ""
 			echo "The release may not have a prebuilt binary for your platform."
 			echo "Try installing with Cargo instead:"
-			echo "  cargo install --git https://github.com/raine/agent-offload"
+			echo "  cargo install --git https://github.com/raine/sideagent"
 			echo ""
 			cd - >/dev/null || cd "$HOME"
 			exit 1
@@ -148,8 +148,8 @@ install_from_release() {
 	fi
 
 	log_info "Verifying checksum..."
-	local checksum_file="agent-offload-${platform}.sha256"
-	local checksum_url="https://github.com/raine/agent-offload/releases/download/${version}/${checksum_file}"
+	local checksum_file="sideagent-${platform}.sha256"
+	local checksum_url="https://github.com/raine/sideagent/releases/download/${version}/${checksum_file}"
 
 	if command -v curl &>/dev/null; then
 		if ! curl -fsSL --retry 3 --retry-connrefused --connect-timeout 10 --max-time 30 -o "$checksum_file" "$checksum_url"; then
@@ -197,7 +197,7 @@ install_from_release() {
 		exit 1
 	fi
 
-	local install_dir="${AGENT_OFFLOAD_INSTALL_DIR:-}"
+	local install_dir="${SIDEAGENT_INSTALL_DIR:-}"
 	if [ -z "$install_dir" ]; then
 		if [[ -w /usr/local/bin ]]; then
 			install_dir="/usr/local/bin"
@@ -207,34 +207,34 @@ install_from_release() {
 		fi
 	fi
 
-	if [ -f "$install_dir/agent-offload" ]; then
+	if [ -f "$install_dir/sideagent" ]; then
 		local existing_version
-		existing_version=$("$install_dir/agent-offload" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+		existing_version=$("$install_dir/sideagent" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 		log_info "Existing installation found: $existing_version"
 		log_info "Upgrading to: $version"
 	fi
 
 	log_info "Installing to $install_dir..."
-	local tmp_binary="$install_dir/agent-offload.tmp.$$"
+	local tmp_binary="$install_dir/sideagent.tmp.$$"
 
 	if [[ -w "$install_dir" ]]; then
-		cp agent-offload "$tmp_binary"
+		cp sideagent "$tmp_binary"
 		chmod +x "$tmp_binary"
-		mv -f "$tmp_binary" "$install_dir/agent-offload"
+		mv -f "$tmp_binary" "$install_dir/sideagent"
 	else
-		if ! sudo cp agent-offload "$tmp_binary"; then
+		if ! sudo cp sideagent "$tmp_binary"; then
 			log_error "Failed to install to $install_dir (sudo required)"
 			exit 1
 		fi
 		sudo chmod +x "$tmp_binary"
-		sudo mv -f "$tmp_binary" "$install_dir/agent-offload"
+		sudo mv -f "$tmp_binary" "$install_dir/sideagent"
 	fi
 
 	if [[ "$(uname -s)" == "Darwin" ]] && command -v xattr &>/dev/null; then
-		xattr -d com.apple.quarantine "$install_dir/agent-offload" 2>/dev/null || true
+		xattr -d com.apple.quarantine "$install_dir/sideagent" 2>/dev/null || true
 	fi
 
-	log_success "agent-offload installed to $install_dir/agent-offload"
+	log_success "sideagent installed to $install_dir/sideagent"
 
 	if [[ ":$PATH:" != *":$install_dir:"* ]]; then
 		log_warning "$install_dir is not in your PATH"
@@ -251,31 +251,31 @@ install_from_release() {
 verify_installation() {
 	local install_dir="$1"
 
-	if [ ! -x "$install_dir/agent-offload" ]; then
-		log_error "agent-offload binary not found or not executable at $install_dir/agent-offload"
+	if [ ! -x "$install_dir/sideagent" ]; then
+		log_error "sideagent binary not found or not executable at $install_dir/sideagent"
 		exit 1
 	fi
 
-	if ! "$install_dir/agent-offload" --version &>/dev/null; then
-		log_error "agent-offload binary exists but failed to run"
+	if ! "$install_dir/sideagent" --version &>/dev/null; then
+		log_error "sideagent binary exists but failed to run"
 		exit 1
 	fi
 
-	log_success "agent-offload is installed and ready!"
+	log_success "sideagent is installed and ready!"
 	echo ""
-	"$install_dir/agent-offload" --version
+	"$install_dir/sideagent" --version
 	echo ""
 	echo "Get started:"
-	echo "  agent-offload install-skill"
-	echo "  agent-offload profiles"
+	echo "  sideagent install-skill"
+	echo "  sideagent profiles"
 	echo ""
-	echo "Documentation: https://github.com/raine/agent-offload"
+	echo "Documentation: https://github.com/raine/sideagent"
 	echo ""
 }
 
 main() {
 	echo ""
-	echo "agent-offload installer"
+	echo "sideagent installer"
 	echo ""
 
 	log_info "Detecting platform..."

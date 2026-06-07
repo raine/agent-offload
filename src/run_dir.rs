@@ -15,7 +15,7 @@ pub fn create() -> Result<RunDir> {
     let runs_dir = home
         .join(".local")
         .join("state")
-        .join("agent-offload")
+        .join("sideagent")
         .join("runs");
     fs::create_dir_all(&runs_dir).context("could not create run directory root")?;
 

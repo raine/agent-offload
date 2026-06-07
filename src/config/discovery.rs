@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 
-pub const PROJECT_CONFIG_FILENAME: &str = ".agent-offload.yaml";
+pub const PROJECT_CONFIG_FILENAME: &str = ".sideagent.yaml";
 
 pub fn find_project_config(cwd: &Path, home: Option<&Path>) -> Result<Option<PathBuf>> {
     let mut dir = Some(cwd);

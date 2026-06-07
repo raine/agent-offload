@@ -66,10 +66,7 @@ pub enum PromptDelivery {
 
 pub fn default_config_path() -> Result<PathBuf> {
     let home = dirs::home_dir().context("could not find home directory")?;
-    Ok(home
-        .join(".config")
-        .join("agent-offload")
-        .join("config.yaml"))
+    Ok(home.join(".config").join("sideagent").join("config.yaml"))
 }
 
 pub fn load_config(path: Option<&Path>) -> Result<(Config, PathBuf)> {

@@ -156,12 +156,12 @@ mod tests {
     #[test]
     fn test_cursor_trust_marker_path_uses_cursor_project_slug() {
         let data_dir = PathBuf::from("/tmp/home/.cursor");
-        let workspace = PathBuf::from("/Users/raine/code/agent-offload__worktrees/project-configs");
+        let workspace = PathBuf::from("/Users/raine/code/sideagent__worktrees/project-configs");
 
         assert_eq!(
             cursor_trust_marker_path(&data_dir, &workspace),
             PathBuf::from(
-                "/tmp/home/.cursor/projects/Users-raine-code-agent-offload__worktrees-project-configs/.workspace-trusted"
+                "/tmp/home/.cursor/projects/Users-raine-code-sideagent__worktrees-project-configs/.workspace-trusted"
             )
         );
     }

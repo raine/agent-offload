@@ -48,7 +48,7 @@ install:
 
 # Install debug binary globally via symlink
 install-dev:
-    cargo build && ln -sf $(pwd)/target/debug/agent-offload ~/.cargo/bin/agent-offload
+    cargo build && ln -sf $(pwd)/target/debug/sideagent ~/.cargo/bin/sideagent
 
 # Run the application
 run *ARGS:

@@ -19,7 +19,7 @@ const STYLES: Styles = Styles::styled()
     .placeholder(AnsiColor::Cyan.on_default());
 
 #[derive(Parser)]
-#[command(name = "agent-offload")]
+#[command(name = "sideagent")]
 #[command(version)]
 #[command(about = "Launch coding agents and wait for completion")]
 #[command(styles = STYLES)]

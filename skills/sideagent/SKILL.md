@@ -1,6 +1,6 @@
-# agent-offload
+# sideagent
 
-Use `agent-offload` when implementation work can be delegated to a configured
+Use `sideagent` when implementation work can be delegated to a configured
 coding agent running in a nearby tmux pane.
 
 ## Profiles
@@ -8,7 +8,7 @@ coding agent running in a nearby tmux pane.
 Configured profiles available in this environment:
 
 ```
-!`agent-offload profiles`
+!`sideagent profiles`
 ```
 
 Use the default profile unless the user asks for a specific one or the task
@@ -19,17 +19,17 @@ clearly needs a named profile.
 For short prompts:
 
 ```sh
-agent-offload run --profile <name> "implement the requested change"
+sideagent run --profile <name> "implement the requested change"
 ```
 
 For long prompts or markdown plans:
 
 ```sh
-cat path/to/plan.md | agent-offload run --profile <name>
+cat path/to/plan.md | sideagent run --profile <name>
 ```
 
 The command blocks until the delegated agent writes its done file. When it
-returns, read the short summary printed by `agent-offload`, inspect the working
+returns, read the short summary printed by `sideagent`, inspect the working
 tree, and verify the result before reporting success.
 
 ## Profile configuration

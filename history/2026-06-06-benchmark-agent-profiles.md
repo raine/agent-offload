@@ -13,8 +13,8 @@
 ## Setup
 
 - Base commit: `5e7f57fdda7fd00a8f458e65d578fff939245870`
-- Config: `/Users/raine/.config/agent-offload/config.yaml`
-- Task: implement `/Users/raine/code/agent-offload/history/2026-06-06-plan-run-archive-events.md`
+- Config: `/Users/raine/.config/sideagent/config.yaml`
+- Task: implement `/Users/raine/code/sideagent/history/2026-06-06-plan-run-archive-events.md`
 - Date: 2026-06-07
 - Method: manual host-run benchmark with fresh temporary clones and detached per-trial runners
 - Benchmarked models:
@@ -28,7 +28,7 @@
 
 ## Task
 
-Implement run archives for `agent-offload`: metadata, JSONL event capture, raw stdout and stderr logs, tmux pane capture, headless summaries, JSON stream parsing for Cursor and Codex, and `runs` / `show` commands with tests and README coverage.
+Implement run archives for `sideagent`: metadata, JSONL event capture, raw stdout and stderr logs, tmux pane capture, headless summaries, JSON stream parsing for Cursor and Codex, and `runs` / `show` commands with tests and README coverage.
 
 ## Trial Results
 
@@ -73,27 +73,27 @@ Implement run archives for `agent-offload`: metadata, JSONL event capture, raw s
   - `bench/codex-spark-trial-2`
   - `bench/codex-spark-trial-3`
 - Diffs:
-  - `/tmp/agent-offload-bench-codex-spark-trial-1.diff`
-  - `/tmp/agent-offload-bench-codex-spark-trial-2.diff`
-  - `/tmp/agent-offload-bench-codex-spark-trial-3.diff`
+  - `/tmp/sideagent-bench-codex-spark-trial-1.diff`
+  - `/tmp/sideagent-bench-codex-spark-trial-2.diff`
+  - `/tmp/sideagent-bench-codex-spark-trial-3.diff`
 - Check outputs:
-  - `/tmp/agent-offload-bench-codex-spark-trial-1-check.txt`
-  - `/tmp/agent-offload-bench-codex-spark-trial-2-check.txt`
-  - `/tmp/agent-offload-bench-codex-spark-trial-3-check.txt`
+  - `/tmp/sideagent-bench-codex-spark-trial-1-check.txt`
+  - `/tmp/sideagent-bench-codex-spark-trial-2-check.txt`
+  - `/tmp/sideagent-bench-codex-spark-trial-3-check.txt`
 - Acceptance outputs:
-  - `/tmp/agent-offload-bench-codex-spark-trial-1-acceptance.txt`
-  - `/tmp/agent-offload-bench-codex-spark-trial-2-acceptance.txt`
-  - `/tmp/agent-offload-bench-codex-spark-trial-3-acceptance.txt`
+  - `/tmp/sideagent-bench-codex-spark-trial-1-acceptance.txt`
+  - `/tmp/sideagent-bench-codex-spark-trial-2-acceptance.txt`
+  - `/tmp/sideagent-bench-codex-spark-trial-3-acceptance.txt`
 - Timing outputs:
-  - `/tmp/agent-offload-bench-codex-spark-trial-1-time.txt`
-  - `/tmp/agent-offload-bench-codex-spark-trial-2-time.txt`
-  - `/tmp/agent-offload-bench-codex-spark-trial-3-time.txt`
+  - `/tmp/sideagent-bench-codex-spark-trial-1-time.txt`
+  - `/tmp/sideagent-bench-codex-spark-trial-2-time.txt`
+  - `/tmp/sideagent-bench-codex-spark-trial-3-time.txt`
 - `consult-llm` outputs:
-  - `/tmp/agent-offload-bench-trial-1-consult.txt`
-  - `/tmp/agent-offload-bench-trial-2-consult.txt`
-  - `/tmp/agent-offload-bench-trial-2-consult-gpt-rerun.txt`
-  - `/tmp/agent-offload-bench-trial-3-consult.txt`
-  - `/tmp/agent-offload-bench-trial-3-consult-gpt-rerun.txt`
+  - `/tmp/sideagent-bench-trial-1-consult.txt`
+  - `/tmp/sideagent-bench-trial-2-consult.txt`
+  - `/tmp/sideagent-bench-trial-2-consult-gpt-rerun.txt`
+  - `/tmp/sideagent-bench-trial-3-consult.txt`
+  - `/tmp/sideagent-bench-trial-3-consult-gpt-rerun.txt`
 - Strengths: good trial 3 robustness, complete core feature coverage, passing checks and acceptance in all trials
 - Issues: consult reviewers found recurring whole-file reads in default `show`, parser fidelity gaps, incomplete lifecycle cleanup, and uneven test or documentation coverage
 - Safe and maintainable diff: useful architecture overall, but the `gpt-5.5` rerun did not consider trial 3 merge-ready without cleanup, parser, and bounded-read fixes
@@ -159,27 +159,27 @@ tests/cli.rs    | 217 ++++++++++++++++++++++++++++++++++++++++++++++++
   - `bench/claude-deepseek-flash-trial-2`
   - `bench/claude-deepseek-flash-trial-3`
 - Diffs:
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-1.diff`
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-2.diff`
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-3.diff`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-1.diff`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-2.diff`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-3.diff`
 - Check outputs:
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-1-check.txt`
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-2-check.txt`
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-3-check.txt`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-1-check.txt`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-2-check.txt`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-3-check.txt`
 - Acceptance outputs:
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-1-acceptance.txt`
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-2-acceptance.txt`
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-3-acceptance.txt`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-1-acceptance.txt`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-2-acceptance.txt`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-3-acceptance.txt`
 - Timing outputs:
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-1-time.txt`
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-2-time.txt`
-  - `/tmp/agent-offload-bench-claude-deepseek-flash-trial-3-time.txt`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-1-time.txt`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-2-time.txt`
+  - `/tmp/sideagent-bench-claude-deepseek-flash-trial-3-time.txt`
 - `consult-llm` outputs:
-  - `/tmp/agent-offload-bench-trial-1-consult.txt`
-  - `/tmp/agent-offload-bench-trial-2-consult.txt`
-  - `/tmp/agent-offload-bench-trial-2-consult-gpt-rerun.txt`
-  - `/tmp/agent-offload-bench-trial-3-consult.txt`
-  - `/tmp/agent-offload-bench-trial-3-consult-gpt-rerun.txt`
+  - `/tmp/sideagent-bench-trial-1-consult.txt`
+  - `/tmp/sideagent-bench-trial-2-consult.txt`
+  - `/tmp/sideagent-bench-trial-2-consult-gpt-rerun.txt`
+  - `/tmp/sideagent-bench-trial-3-consult.txt`
+  - `/tmp/sideagent-bench-trial-3-consult-gpt-rerun.txt`
 - Strengths: completed every run, passed `just check`, broad module coverage, decent trial 3 quality
 - Issues: slowest median time, lower median host score, whole-file reads, parser fidelity concerns, missing runtime acceptance confidence, and cleanup issues across failure paths
 - Safe and maintainable diff: mostly maintainable structurally, but `gpt-5.5` did not consider the trial 2 or trial 3 diffs safe to merge without lifecycle and event-tail refactors
@@ -263,27 +263,27 @@ tests/cli.rs            | 196 ++++++++++++++++++
   - `bench/cursor-composer-fast-trial-2`
   - `bench/cursor-composer-fast-trial-3`
 - Diffs:
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-1.diff`
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-2.diff`
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-3.diff`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-1.diff`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-2.diff`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-3.diff`
 - Check outputs:
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-1-check.txt`
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-2-check.txt`
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-3-check.txt`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-1-check.txt`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-2-check.txt`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-3-check.txt`
 - Acceptance outputs:
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-1-acceptance.txt`
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-2-acceptance.txt`
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-3-acceptance.txt`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-1-acceptance.txt`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-2-acceptance.txt`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-3-acceptance.txt`
 - Timing outputs:
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-1-time.txt`
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-2-time.txt`
-  - `/tmp/agent-offload-bench-cursor-composer-fast-trial-3-time.txt`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-1-time.txt`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-2-time.txt`
+  - `/tmp/sideagent-bench-cursor-composer-fast-trial-3-time.txt`
 - `consult-llm` outputs:
-  - `/tmp/agent-offload-bench-trial-1-consult.txt`
-  - `/tmp/agent-offload-bench-trial-2-consult.txt`
-  - `/tmp/agent-offload-bench-trial-2-consult-gpt-rerun.txt`
-  - `/tmp/agent-offload-bench-trial-3-consult.txt`
-  - `/tmp/agent-offload-bench-trial-3-consult-gpt-rerun.txt`
+  - `/tmp/sideagent-bench-trial-1-consult.txt`
+  - `/tmp/sideagent-bench-trial-2-consult.txt`
+  - `/tmp/sideagent-bench-trial-2-consult-gpt-rerun.txt`
+  - `/tmp/sideagent-bench-trial-3-consult.txt`
+  - `/tmp/sideagent-bench-trial-3-consult-gpt-rerun.txt`
 - Strengths: fastest, best median score, broad tests, good README coverage, strong trial 2 cleanup story
 - Issues: trial 1 and trial 3 still had cleanup risks, and `gpt-5.5` flagged whole-file event reads, lossy Cursor parsing, unsafe lifecycle cleanup, and tee-thread exit-code masking
 - Safe and maintainable diff: trial 2 remained the best balanced result, but the full consult set still called for bounded-read and lifecycle cleanup fixes before merging

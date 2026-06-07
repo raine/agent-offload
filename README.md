@@ -1,4 +1,4 @@
-<h1 align="center">agent-offload</h1>
+<h1 align="center">sideagent</h1>
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
@@ -6,7 +6,7 @@
   <a href="#commands">Commands</a>
 </p>
 
-`agent-offload` launches another coding agent and blocks until that agent
+`sideagent` launches another coding agent and blocks until that agent
 completes. Use it when your main agent wants to delegate implementation work
 while keeping the current conversation in control of review, verification, and
 final reporting.
@@ -26,7 +26,7 @@ backed agent to do the edit. The host agent should be able to start that run,
 pass the plan, wait for completion, and review the result without asking the user
 to open and manage a separate session.
 
-`agent-offload` makes offloading harness agnostic by using process execution as
+`sideagent` makes offloading harness agnostic by using process execution as
 the boundary. The host agent runs one blocking command, the delegated task opens
 in a new tmux pane or runs headlessly, and the host agent waits until the task
 completes. Then the host agent can inspect the diff, run checks, and continue
@@ -38,7 +38,7 @@ the review in the original conversation.
 - Passes prompts using the format each agent CLI expects
 - Waits for completion and returns the delegated agent's summary
 - Supports per-profile arguments and environment variables
-- Installs a provider-agnostic `/agent-offload` skill bundle
+- Installs a provider-agnostic `/sideagent` skill bundle
 
 ## Quick start
 
@@ -46,23 +46,23 @@ the review in the original conversation.
 
 ```bash
 # Shell script, macOS/Linux
-curl -fsSL https://raw.githubusercontent.com/raine/agent-offload/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/raine/sideagent/main/scripts/install.sh | bash
 
 # Homebrew
-brew install raine/agent-offload/agent-offload
+brew install raine/sideagent/sideagent
 
 # Cargo from source
-cargo install --git https://github.com/raine/agent-offload --locked
+cargo install --git https://github.com/raine/sideagent --locked
 ```
 
 ### 2. Create a config
 
-`agent-offload` selects a config in this order:
+`sideagent` selects a config in this order:
 
 1. `--config <path>`
-2. The nearest `.agent-offload.yaml` in the current directory or an ancestor up to
+2. The nearest `.sideagent.yaml` in the current directory or an ancestor up to
    your home directory
-3. `~/.config/agent-offload/config.yaml`
+3. `~/.config/sideagent/config.yaml`
 
 A discovered project config replaces the user config completely. Configs are not
 merged.
@@ -75,7 +75,7 @@ See [Configuration](#configuration) for an example.
 ### 3. Install the skill
 
 ```bash
-agent-offload install-skill
+sideagent install-skill
 ```
 
 Without `--provider`, this installs to every detected provider config
@@ -86,24 +86,24 @@ been created yet.
 Default install paths are:
 
 ```text
-~/.claude/skills/agent-offload/SKILL.md
-~/.config/opencode/skills/agent-offload/SKILL.md
-~/.codex/skills/agent-offload/SKILL.md
-~/.pi/agent/skills/agent-offload/SKILL.md
+~/.claude/skills/sideagent/SKILL.md
+~/.config/opencode/skills/sideagent/SKILL.md
+~/.codex/skills/sideagent/SKILL.md
+~/.pi/agent/skills/sideagent/SKILL.md
 ```
 
-Then use `/agent-offload` from your host agent UI, or call the CLI directly.
+Then use `/sideagent` from your host agent UI, or call the CLI directly.
 
 ### 4. Delegate work
 
 From Claude Code, invoke the installed skill:
 
 ```text
-/agent-offload implement the change in history/plan.md
+/sideagent implement the change in history/plan.md
 ```
 
 The host agent loads the skill, chooses a configured profile, runs
-`agent-offload`, waits for the delegated agent's summary, then reviews and
+`sideagent`, waits for the delegated agent's summary, then reviews and
 reports the result in the current conversation.
 
 ## How it works
@@ -111,7 +111,7 @@ reports the result in the current conversation.
 Tmux runs get a directory under:
 
 ```text
-~/.local/state/agent-offload/runs/
+~/.local/state/sideagent/runs/
 ```
 
 The run directory contains:
@@ -122,7 +122,7 @@ The run directory contains:
 | `launch.sh` | The generated executable launcher script              |
 | `done.md`   | The completion summary written by the delegated agent |
 
-In tmux mode, `agent-offload` appends instructions to the prompt telling the
+In tmux mode, `sideagent` appends instructions to the prompt telling the
 delegated agent to write a concise summary to `done.md.tmp`, then atomically
 rename it to `done.md`. The parent process waits for `done.md` to exist, then
 kills the delegated pane. If the tmux pane closes first, the run fails instead
@@ -133,7 +133,7 @@ its exit status. Headless `prompt-file-arg` runs create a run directory for the
 prompt file; headless `argument` and `stdin` runs do not.
 
 The delegated pane opens to the right of the tmux pane that runs
-`agent-offload`, even if another tmux client is viewing a different window.
+`sideagent`, even if another tmux client is viewing a different window.
 Other panes in the window keep their existing layout scope.
 
 ## One-off benchmark
@@ -162,18 +162,18 @@ for methodology, timings, reviews, and limitations.
 
 ## Configuration
 
-`agent-offload` selects a config in this order:
+`sideagent` selects a config in this order:
 
 1. `--config <path>`
-2. The nearest `.agent-offload.yaml` in the current directory or an ancestor up to
+2. The nearest `.sideagent.yaml` in the current directory or an ancestor up to
    your home directory
-3. `~/.config/agent-offload/config.yaml`
+3. `~/.config/sideagent/config.yaml`
 
 A discovered project config replaces the user config completely. Configs are not
 merged. Project discovery stops after checking your home directory.
 
 Project configs can contain commands and environment variables. Do not commit
-secrets in `.agent-offload.yaml`. Use `from_env` instead.
+secrets in `.sideagent.yaml`. Use `from_env` instead.
 
 A config has a default profile and one or more named profiles. Top-level
 `headless: true` runs every profile without tmux. This example uses Codex Spark
@@ -295,14 +295,14 @@ Environment variable names must be valid shell identifiers.
 Launch a profile with a prompt and wait for completion.
 
 ```bash
-agent-offload run --profile claude-deepseek-flash "fix the failing tests"
-cat history/plan.md | agent-offload run --profile codex-spark
+sideagent run --profile claude-deepseek-flash "fix the failing tests"
+cat history/plan.md | sideagent run --profile codex-spark
 ```
 
 The `run` subcommand is optional, so this is equivalent:
 
 ```bash
-agent-offload --profile claude-deepseek-flash "fix the failing tests"
+sideagent --profile claude-deepseek-flash "fix the failing tests"
 ```
 
 Options:
@@ -318,8 +318,8 @@ Options:
 List configured profiles and mark the default.
 
 ```bash
-agent-offload profiles
-agent-offload profiles --config ./.agent-offload.yaml
+sideagent profiles
+sideagent profiles --config ./.sideagent.yaml
 ```
 
 ### `install-skill`
@@ -327,11 +327,11 @@ agent-offload profiles --config ./.agent-offload.yaml
 Install the bundled skill for one provider or all detected providers.
 
 ```bash
-agent-offload install-skill
+sideagent install-skill
 ```
 
 ```bash
-agent-offload install-skill --provider claude
+sideagent install-skill --provider claude
 ```
 
 Without `--provider`, the command installs to detected provider config
@@ -354,11 +354,11 @@ matches the bundled copy.
 A typical host-agent workflow looks like this:
 
 ```text
-> /agent-offload implement the plan in history/2026-06-06-plan-feature.md with the spark profile
+> /sideagent implement the plan in history/2026-06-06-plan-feature.md with the spark profile
 
 The host agent:
-1. Loads the `agent-offload` skill
-2. Pipes the plan into `agent-offload run --profile codex-spark`
+1. Loads the `sideagent` skill
+2. Pipes the plan into `sideagent run --profile codex-spark`
 3. Waits for the delegated agent's completion summary
 4. Inspects the diff and runs the requested checks
 5. Reports the reviewed result
@@ -379,8 +379,8 @@ runs do not require tmux.
 ## Development
 
 ```bash
-git clone https://github.com/raine/agent-offload.git
-cd agent-offload
+git clone https://github.com/raine/sideagent.git
+cd sideagent
 just check
 ```
 

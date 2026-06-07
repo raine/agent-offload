@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 env:
-  BIN_NAME: agent-offload
+  BIN_NAME: sideagent
 
 jobs:
   build:
@@ -18,19 +18,19 @@ jobs:
         include:
           - os: macos-15
             target: aarch64-apple-darwin
-            artifact: agent-offload-darwin-arm64
+            artifact: sideagent-darwin-arm64
             use_cross: false
           - os: macos-15
             target: x86_64-apple-darwin
-            artifact: agent-offload-darwin-amd64
+            artifact: sideagent-darwin-amd64
             use_cross: false
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            artifact: agent-offload-linux-amd64
+            artifact: sideagent-linux-amd64
             use_cross: true
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            artifact: agent-offload-linux-arm64
+            artifact: sideagent-linux-arm64
             use_cross: true
     runs-on: ${{ matrix.os }}
     steps:
@@ -91,7 +91,7 @@ jobs:
         env:
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
-          git clone "https://x-access-token:${RELEASE_TOKEN}@github.com/raine/homebrew-agent-offload.git" tap
+          git clone "https://x-access-token:${RELEASE_TOKEN}@github.com/raine/homebrew-sideagent.git" tap
           cd tap
           git switch main || git switch -c main
       - name: Generate formula and push to tap
@@ -99,55 +99,55 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           VERSION="${VERSION#v}"
-          SHA_MAC_ARM=$(awk '{print $1}' agent-offload-darwin-arm64.sha256)
-          SHA_MAC_INTEL=$(awk '{print $1}' agent-offload-darwin-amd64.sha256)
-          SHA_LINUX_INTEL=$(awk '{print $1}' agent-offload-linux-amd64.sha256)
-          SHA_LINUX_ARM=$(awk '{print $1}' agent-offload-linux-arm64.sha256)
+          SHA_MAC_ARM=$(awk '{print $1}' sideagent-darwin-arm64.sha256)
+          SHA_MAC_INTEL=$(awk '{print $1}' sideagent-darwin-amd64.sha256)
+          SHA_LINUX_INTEL=$(awk '{print $1}' sideagent-linux-amd64.sha256)
+          SHA_LINUX_ARM=$(awk '{print $1}' sideagent-linux-arm64.sha256)
 
           mkdir -p tap/Formula
-          cat > tap/Formula/agent-offload.rb << EOF
-          class AgentOffload < Formula
+          cat > tap/Formula/sideagent.rb << EOF
+          class Sideagent < Formula
             desc "Launch coding agents in tmux panes and wait for completion"
-            homepage "https://github.com/raine/agent-offload"
+            homepage "https://github.com/raine/sideagent"
             version "${VERSION}"
             license "MIT"
 
             on_macos do
               if Hardware::CPU.arm?
-                url "https://github.com/raine/agent-offload/releases/download/v${VERSION}/agent-offload-darwin-arm64.tar.gz"
+                url "https://github.com/raine/sideagent/releases/download/v${VERSION}/sideagent-darwin-arm64.tar.gz"
                 sha256 "${SHA_MAC_ARM}"
               else
-                url "https://github.com/raine/agent-offload/releases/download/v${VERSION}/agent-offload-darwin-amd64.tar.gz"
+                url "https://github.com/raine/sideagent/releases/download/v${VERSION}/sideagent-darwin-amd64.tar.gz"
                 sha256 "${SHA_MAC_INTEL}"
               end
             end
 
             on_linux do
               if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-                url "https://github.com/raine/agent-offload/releases/download/v${VERSION}/agent-offload-linux-arm64.tar.gz"
+                url "https://github.com/raine/sideagent/releases/download/v${VERSION}/sideagent-linux-arm64.tar.gz"
                 sha256 "${SHA_LINUX_ARM}"
               else
-                url "https://github.com/raine/agent-offload/releases/download/v${VERSION}/agent-offload-linux-amd64.tar.gz"
+                url "https://github.com/raine/sideagent/releases/download/v${VERSION}/sideagent-linux-amd64.tar.gz"
                 sha256 "${SHA_LINUX_INTEL}"
               end
             end
 
             def install
-              bin.install "agent-offload"
+              bin.install "sideagent"
             end
 
             test do
-              assert_match version.to_s, shell_output("#{bin}/agent-offload --version")
+              assert_match version.to_s, shell_output("#{bin}/sideagent --version")
             end
           end
           EOF
-          sed -i 's/^          //' tap/Formula/agent-offload.rb
+          sed -i 's/^          //' tap/Formula/sideagent.rb
 
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/agent-offload.rb
-          git commit -m "agent-offload ${VERSION}"
+          git add Formula/sideagent.rb
+          git commit -m "sideagent ${VERSION}"
           if git ls-remote --exit-code --heads origin main; then
             git pull --rebase origin main
           fi

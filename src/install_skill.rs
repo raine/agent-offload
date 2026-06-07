@@ -4,8 +4,8 @@ use std::fs;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
-const SKILL_ID: &str = "agent-offload";
-const SKILL_CONTENT: &str = include_str!("../skills/agent-offload/SKILL.md");
+const SKILL_ID: &str = "sideagent";
+const SKILL_CONTENT: &str = include_str!("../skills/sideagent/SKILL.md");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum Provider {
@@ -186,10 +186,10 @@ mod tests {
     #[test]
     fn test_shrink_path_under_home() {
         let home = PathBuf::from("/tmp/home");
-        let path = home.join(".claude/skills/agent-offload/SKILL.md");
+        let path = home.join(".claude/skills/sideagent/SKILL.md");
         assert_eq!(
             shrink_path(&path, &home),
-            "~/.claude/skills/agent-offload/SKILL.md"
+            "~/.claude/skills/sideagent/SKILL.md"
         );
     }
 
@@ -208,15 +208,15 @@ mod tests {
 
         assert_eq!(
             Provider::Claude.skill_dir(&home, Some(&claude_override), Some(&pi_override),),
-            PathBuf::from("/tmp/claude-config/skills/agent-offload"),
+            PathBuf::from("/tmp/claude-config/skills/sideagent"),
         );
         assert_eq!(
             Provider::Pi.skill_dir(&home, Some(&claude_override), Some(&pi_override)),
-            PathBuf::from("/tmp/pi-agent/skills/agent-offload"),
+            PathBuf::from("/tmp/pi-agent/skills/sideagent"),
         );
         assert_eq!(
             Provider::Opencode.skill_dir(&home, Some(&claude_override), Some(&pi_override),),
-            PathBuf::from("/tmp/home/.config/opencode/skills/agent-offload"),
+            PathBuf::from("/tmp/home/.config/opencode/skills/sideagent"),
         );
     }
 
@@ -236,12 +236,9 @@ mod tests {
             vec![
                 (
                     Provider::Claude,
-                    claude_dir.join("skills").join("agent-offload")
+                    claude_dir.join("skills").join("sideagent")
                 ),
-                (
-                    Provider::Codex,
-                    codex_dir.join("skills").join("agent-offload")
-                ),
+                (Provider::Codex, codex_dir.join("skills").join("sideagent")),
             ]
         );
     }
@@ -261,10 +258,7 @@ mod tests {
         );
         assert_eq!(
             targets,
-            vec![(
-                Provider::Pi,
-                pi_override.join("skills").join("agent-offload")
-            )]
+            vec![(Provider::Pi, pi_override.join("skills").join("sideagent"))]
         );
     }
 }
