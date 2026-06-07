@@ -39,7 +39,6 @@ original conversation.
 - Passes prompts using the format each agent CLI expects
 - Waits for completion and returns the delegated agent's summary
 - Supports per-profile arguments and environment variables
-- Installs a provider-agnostic `/sideagent` skill bundle
 
 ## Quick start
 
@@ -180,7 +179,6 @@ profiles:
     command: /opt/homebrew/bin/codex
     interface: codex
     args:
-      - --yolo
       - --model
       - gpt-5.3-codex-spark
       - -c
@@ -191,8 +189,6 @@ profiles:
   claude-deepseek-flash:
     command: /Users/raine/.local/bin/claude
     interface: claude
-    args:
-      - --dangerously-skip-permissions
     env:
       ANTHROPIC_BASE_URL: https://api.deepseek.com/anthropic
       ANTHROPIC_AUTH_TOKEN:
