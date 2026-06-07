@@ -186,9 +186,28 @@ profiles:
     env: {}
     prompt: argument
 
+  claude-composer-fast:
+    command: /Users/raine/.local/bin/claude
+    interface: claude
+    args:
+      - --dangerously-skip-permissions
+    env:
+      ANTHROPIC_BASE_URL: http://localhost:18765 # claude-code-proxy
+      ANTHROPIC_AUTH_TOKEN: anything
+      ANTHROPIC_MODEL: 'composer-2.5-fast'
+      ANTHROPIC_SMALL_FAST_MODEL: 'composer-2.5-fast'
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1'
+      CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK: '1'
+      CLAUDE_CODE_EFFORT_LEVEL: max
+      CLAUDE_CODE_ENABLE_TELEMETRY: '0'
+    prompt: argument
+
   claude-deepseek-flash:
     command: /Users/raine/.local/bin/claude
     interface: claude
+    args:
+      - --dangerously-skip-permissions
     env:
       ANTHROPIC_BASE_URL: https://api.deepseek.com/anthropic
       ANTHROPIC_AUTH_TOKEN:
