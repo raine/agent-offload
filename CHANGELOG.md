@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.6 (2026-06-07)
+
+- Tmux runs now fail promptly if the delegated pane closes before reporting completion instead of waiting forever.
+
 ## v0.1.5 (2026-06-07)
 
 - Project configs are now discovered from `.sideagent.yaml`, and the default user config lives under `~/.config/sideagent`.
