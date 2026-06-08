@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.8 (2026-06-08)
+
+- Headless Claude, Codex, Cursor, and OpenCode runs now use each CLI's structured output to detect when delegated work finishes.
+- Headless runs for known interfaces now print a compact transcript tail and save the full JSONL log for review.
+
 ## v0.1.7 (2026-06-07)
 
 - Delegated tmux panes now choose the neighboring pane when it better preserves the current layout.
