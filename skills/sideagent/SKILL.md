@@ -1,7 +1,7 @@
 # sideagent
 
 Use `sideagent` when implementation work can be delegated to a configured
-coding agent running in a nearby tmux pane.
+coding agent running in tmux or headless mode.
 
 ## Delegate work
 
@@ -21,9 +21,10 @@ For long prompts or markdown plans:
 cat path/to/plan.md | sideagent
 ```
 
-The command blocks until the delegated agent writes its done file. When it
-returns, read the short summary printed by `sideagent`, inspect the working
-tree, and verify the result before reporting success.
+The command blocks until the delegated run completes. Tmux profiles signal
+completion with a done file; headless profiles use the configured CLI's
+machine-readable output or process exit. When it returns, inspect the working
+tree and verify the result before reporting success.
 
 ## Prompt guidance
 

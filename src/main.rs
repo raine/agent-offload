@@ -34,7 +34,7 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Commands {
-    /// Launch a profile with a prompt and wait for its done file.
+    /// Launch a profile with a prompt and wait for completion.
     Run(RunArgs),
 
     /// List configured profiles.

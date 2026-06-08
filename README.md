@@ -37,7 +37,7 @@ original conversation.
 
 - Launches configured agent profiles in tmux or headless mode
 - Passes prompts using the format each agent CLI expects
-- Waits for completion and returns the delegated agent's summary
+- Waits for completion using tmux files or headless CLI protocol signals
 - Supports per-profile arguments and environment variables
 
 ## Quick start
@@ -90,8 +90,8 @@ From Claude Code, invoke the installed skill:
 ```
 
 The host agent loads the skill, chooses a configured profile, runs
-`sideagent`, waits for the delegated agent's summary, then reviews and
-reports the result in the current conversation.
+`sideagent`, waits for the delegated run to complete, then reviews and reports
+the result in the current conversation.
 
 ## How it works
 
@@ -116,8 +116,10 @@ kills the delegated pane. If the tmux pane closes first, the run fails instead
 of hanging silently.
 
 Headless runs execute the configured command in the current terminal and return
-its exit status. Headless `prompt-file-arg` runs create a run directory for the
-prompt file; headless `argument` and `stdin` runs do not.
+its exit status. Known interfaces use their machine-readable output modes in
+headless mode so completion can be detected from CLI protocol events instead of
+agent-written files. Headless `prompt-file-arg` runs create a run directory for
+the prompt file; headless `argument` and `stdin` runs do not.
 
 The delegated pane opens to the right of the tmux pane that runs
 `sideagent`, even if another tmux client is viewing a different window.
@@ -276,6 +278,22 @@ profile-level `headless` is true.
 
 Use `prompt-file-arg` only when at least one arg contains `{prompt_file}`.
 
+### Headless completion
+
+Headless mode chooses completion detection from `interface`:
+
+| Interface  | Added headless output flags                | Completion signal                    |
+| ---------- | ------------------------------------------ | ------------------------------------ |
+| `generic`  | None                                       | Child process exit                   |
+| `claude`   | `--output-format stream-json`              | JSON line with `type=result`         |
+| `codex`    | `--json`                                   | JSON line with turn finished event   |
+| `cursor`   | `--print --output-format stream-json`      | JSON line with `type=result`         |
+| `opencode` | `--format json`                            | JSON stream ends when the CLI exits  |
+
+For interfaces with terminal events, `sideagent` fails if the process exits
+without seeing the expected event. The child process exit status is still
+preserved.
+
 ### Environment variables
 
 Literal values are written directly:
@@ -366,7 +384,7 @@ A typical host-agent workflow looks like this:
 The host agent:
 1. Loads the `sideagent` skill
 2. Pipes the plan into `sideagent run --profile codex-spark`
-3. Waits for the delegated agent's completion summary
+3. Waits for the delegated run to complete
 4. Inspects the diff and runs the requested checks
 5. Reports the reviewed result
 ```
