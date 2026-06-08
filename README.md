@@ -118,8 +118,9 @@ of hanging silently.
 Headless runs execute the configured command in the current terminal and return
 its exit status. Known interfaces use their machine-readable output modes in
 headless mode so completion can be detected from CLI protocol events instead of
-agent-written files. Headless `prompt-file-arg` runs create a run directory for
-the prompt file; headless `argument` and `stdin` runs do not.
+agent-written files. `sideagent` saves the full stdout JSONL stream and prints a
+compact transcript tail plus the log path. Headless `prompt-file-arg` runs also
+write `prompt.md` in the run directory.
 
 The delegated pane opens to the right of the tmux pane that runs
 `sideagent`, even if another tmux client is viewing a different window.
@@ -285,14 +286,16 @@ Headless mode chooses completion detection from `interface`:
 | Interface  | Added headless output flags                | Completion signal                    |
 | ---------- | ------------------------------------------ | ------------------------------------ |
 | `generic`  | None                                       | Child process exit                   |
-| `claude`   | `--output-format stream-json`              | JSON line with `type=result`         |
+| `claude`   | `--output-format stream-json --verbose`    | JSON line with `type=result`         |
 | `codex`    | `--json`                                   | JSON line with turn finished event   |
 | `cursor`   | `--print --output-format stream-json`      | JSON line with `type=result`         |
 | `opencode` | `--format json`                            | JSON stream ends when the CLI exits  |
 
 For interfaces with terminal events, `sideagent` fails if the process exits
 without seeing the expected event. The child process exit status is still
-preserved.
+preserved. Known headless interfaces write the raw stdout JSONL stream to
+`stdout.jsonl` under the run directory and print the last 30 compact rendered
+transcript lines. `generic` profiles keep stdout pass-through behavior.
 
 ### Environment variables
 

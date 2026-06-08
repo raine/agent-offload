@@ -23,8 +23,9 @@ cat path/to/plan.md | sideagent
 
 The command blocks until the delegated run completes. Tmux profiles signal
 completion with a done file; headless profiles use the configured CLI's
-machine-readable output or process exit. When it returns, inspect the working
-tree and verify the result before reporting success.
+machine-readable output or process exit. Headless known-interface output is a
+compact transcript tail with a path to the full raw log. When it returns,
+inspect the working tree and verify the result before reporting success.
 
 ## Prompt guidance
 
