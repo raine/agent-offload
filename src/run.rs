@@ -21,7 +21,7 @@ pub fn run(args: RunArgs) -> Result<()> {
     if headless_mode {
         eprintln!("profile: {profile_name} (headless)");
         eprintln!("config: {}", config_path.display());
-        let exit_code = headless::run_headless(profile, &prompt)?;
+        let exit_code = headless::run_headless(profile_name, profile, &prompt)?;
         std::process::exit(exit_code);
     }
 

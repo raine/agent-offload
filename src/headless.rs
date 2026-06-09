@@ -1,17 +1,19 @@
 use crate::config::{AgentInterface, Profile, PromptDelivery};
 use crate::run_dir;
 use anyhow::{Context, Result, bail};
+use chrono::{DateTime, Utc};
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 
 const RENDER_TAIL_LINES: usize = 30;
 const TRUNC_DEFAULT: usize = 500;
 
-pub fn run_headless(profile: &Profile, prompt: &str) -> Result<i32> {
+pub fn run_headless(profile_name: &str, profile: &Profile, prompt: &str) -> Result<i32> {
     let mut cmd = Command::new(&profile.command);
     cmd.stderr(Stdio::inherit());
 
@@ -64,19 +66,74 @@ pub fn run_headless(profile: &Profile, prompt: &str) -> Result<i32> {
         cmd.stdout(Stdio::inherit());
     }
 
-    let log_file = headless_run
-        .as_ref()
-        .map(|dir| dir.path.join("stdout.jsonl"));
-    let result = spawn_and_wait(cmd, profile.prompt, prompt, signal, log_file.as_deref())?;
-    if signal.requires_event() && !result.saw_completion {
-        bail!(
+    let mut recorder = if signal.captures_stdout() {
+        let run_dir = headless_run
+            .as_ref()
+            .context("headless run directory was not created")?;
+        let recorder = HeadlessRunRecorder::new(
+            run_dir.metadata_file.clone(),
+            profile_name,
+            profile,
+            &args,
+            Utc::now(),
+        );
+        recorder.write()?;
+        Some(recorder)
+    } else {
+        None
+    };
+
+    let stdout_log_file = if signal.captures_stdout() {
+        Some(
+            headless_run
+                .as_ref()
+                .context("headless run directory was not created")?
+                .stdout_file
+                .clone(),
+        )
+    } else {
+        None
+    };
+
+    let result = match spawn_and_wait(
+        cmd,
+        profile.prompt,
+        prompt,
+        signal,
+        stdout_log_file.as_deref(),
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            if let Some(recorder) = recorder.as_mut() {
+                let _ = recorder.fail_without_exit(format!("{error:#}"));
+            }
+            return Err(error);
+        }
+    };
+    let missing_completion = signal.requires_event() && !result.saw_completion;
+    let missing_completion_failure = missing_completion.then(|| {
+        format!(
             "headless {} agent exited without a completion event",
             signal.name()
-        );
+        )
+    });
+    let failure = missing_completion_failure
+        .clone()
+        .or_else(|| result.completion_failure.clone());
+    if let Some(recorder) = recorder.as_mut() {
+        recorder.finish(
+            &result.status,
+            result.saw_completion,
+            signal.requires_event(),
+            failure,
+        )?;
+    }
+    if let Some(failure) = missing_completion_failure {
+        bail!(failure);
     }
 
-    if let Some(log_file) = &log_file {
-        print_rendered_tail(&result.rendered, log_file)?;
+    if let Some(stdout_log_file) = &stdout_log_file {
+        print_rendered_tail(&result.rendered, stdout_log_file)?;
     }
 
     Ok(result.status.code().unwrap_or(1))
@@ -85,7 +142,100 @@ pub fn run_headless(profile: &Profile, prompt: &str) -> Result<i32> {
 struct HeadlessRun {
     status: ExitStatus,
     saw_completion: bool,
+    completion_failure: Option<String>,
     rendered: RenderedTail,
+}
+
+#[derive(Serialize)]
+struct HeadlessRunMetadata {
+    profile: HeadlessRunProfileMetadata,
+    interface: String,
+    prompt_delivery: String,
+    started_at: String,
+    completed_at: Option<String>,
+    status: String,
+    exit_code: Option<i32>,
+    completion_event_seen: Option<bool>,
+    failure: Option<String>,
+}
+
+#[derive(Serialize)]
+struct HeadlessRunProfileMetadata {
+    name: String,
+    command: String,
+    args: Vec<String>,
+}
+
+struct HeadlessRunRecorder {
+    metadata_file: PathBuf,
+    metadata: HeadlessRunMetadata,
+}
+
+impl HeadlessRunRecorder {
+    fn new(
+        metadata_file: PathBuf,
+        profile_name: &str,
+        profile: &Profile,
+        args: &[String],
+        started_at: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            metadata_file,
+            metadata: HeadlessRunMetadata {
+                profile: HeadlessRunProfileMetadata {
+                    name: profile_name.to_string(),
+                    command: profile.command.clone(),
+                    args: args.to_vec(),
+                },
+                interface: interface_name(profile.interface).to_string(),
+                prompt_delivery: prompt_delivery_name(profile.prompt).to_string(),
+                started_at: started_at.to_rfc3339(),
+                completed_at: None,
+                status: "running".to_string(),
+                exit_code: None,
+                completion_event_seen: None,
+                failure: None,
+            },
+        }
+    }
+
+    fn write(&self) -> Result<()> {
+        let tmp = self.metadata_file.with_extension("json.tmp");
+        let bytes = serde_json::to_vec_pretty(&self.metadata)
+            .context("could not serialize headless run metadata")?;
+        fs::write(&tmp, bytes).with_context(|| format!("could not write {}", tmp.display()))?;
+        fs::rename(&tmp, &self.metadata_file)
+            .with_context(|| format!("could not replace {}", self.metadata_file.display()))?;
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        status: &ExitStatus,
+        saw_completion: bool,
+        requires_event: bool,
+        failure: Option<String>,
+    ) -> Result<()> {
+        self.metadata.completed_at = Some(Utc::now().to_rfc3339());
+        self.metadata.exit_code = Some(status.code().unwrap_or(1));
+        self.metadata.completion_event_seen = requires_event.then_some(saw_completion);
+        self.metadata.failure = failure;
+        self.metadata.status = if status.success() && self.metadata.failure.is_none() {
+            "success".to_string()
+        } else {
+            "failed".to_string()
+        };
+        self.write()
+    }
+
+    fn fail_without_exit(&mut self, failure: String) -> Result<()> {
+        self.metadata.completed_at = Some(Utc::now().to_rfc3339());
+        self.metadata.status = "failed".to_string();
+        self.metadata.exit_code = None;
+        self.metadata.completion_event_seen = None;
+        self.metadata.failure = Some(failure);
+        self.write()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -132,6 +282,25 @@ impl CompletionSignal {
         }
     }
 
+    fn line_failure(self, value: &Value) -> Option<String> {
+        match self {
+            CompletionSignal::ClaudeResult | CompletionSignal::CursorResult => {
+                let subtype = str_field(value, "subtype")?;
+                (subtype != "success").then(|| format!("result subtype {subtype}"))
+            }
+            CompletionSignal::CodexTurnFinished => {
+                (str_field(value, "type") == Some("turn.failed")).then(|| {
+                    value
+                        .get("error")
+                        .and_then(|error| str_field(error, "message"))
+                        .unwrap_or("turn failed")
+                        .to_string()
+                })
+            }
+            CompletionSignal::Exit | CompletionSignal::OpencodeJsonExit => None,
+        }
+    }
+
     fn renderer(self) -> RendererKind {
         match self {
             CompletionSignal::ClaudeResult => RendererKind::Claude,
@@ -150,6 +319,24 @@ fn completion_signal(interface: AgentInterface) -> CompletionSignal {
         AgentInterface::Cursor => CompletionSignal::CursorResult,
         AgentInterface::Opencode => CompletionSignal::OpencodeJsonExit,
         AgentInterface::Generic => CompletionSignal::Exit,
+    }
+}
+
+fn interface_name(interface: AgentInterface) -> &'static str {
+    match interface {
+        AgentInterface::Claude => "claude",
+        AgentInterface::Codex => "codex",
+        AgentInterface::Cursor => "cursor",
+        AgentInterface::Opencode => "opencode",
+        AgentInterface::Generic => "generic",
+    }
+}
+
+fn prompt_delivery_name(prompt: PromptDelivery) -> &'static str {
+    match prompt {
+        PromptDelivery::Argument => "argument",
+        PromptDelivery::Stdin => "stdin",
+        PromptDelivery::PromptFileArg => "prompt-file-arg",
     }
 }
 
@@ -198,16 +385,19 @@ fn wait_with_stdout(
     signal: CompletionSignal,
     log_file: Option<&Path>,
 ) -> Result<HeadlessRun> {
-    let (saw_completion, rendered) = if let Some(stdout) = child.stdout.take() {
-        stream_stdout(stdout, signal, log_file)?
+    let stream_result = if let Some(stdout) = child.stdout.take() {
+        stream_stdout(stdout, signal, log_file)
     } else {
-        (false, RenderedTail::default())
+        Ok((false, None, RenderedTail::default()))
     };
 
     let status = child.wait().context("could not wait for headless agent")?;
+    let (saw_completion, completion_failure, rendered) = stream_result?;
+
     Ok(HeadlessRun {
         status,
         saw_completion,
+        completion_failure,
         rendered,
     })
 }
@@ -216,8 +406,9 @@ fn stream_stdout(
     stdout: impl std::io::Read,
     signal: CompletionSignal,
     log_file: Option<&Path>,
-) -> Result<(bool, RenderedTail)> {
+) -> Result<(bool, Option<String>, RenderedTail)> {
     let mut saw_completion = false;
+    let mut completion_failure = None;
     let mut renderer = HeadlessRenderer::new(signal.renderer());
     let mut rendered = RenderedTail::default();
     let mut log = match log_file {
@@ -231,12 +422,18 @@ fn stream_stdout(
     for line in BufReader::new(stdout).lines() {
         let line = line.context("could not read headless agent stdout")?;
         if let Some(log) = log.as_mut() {
-            writeln!(log, "{line}").context("could not write headless stdout log")?;
+            log.write_all(format!("{line}\n").as_bytes())
+                .context("could not write headless stdout log")?;
         }
 
         match serde_json::from_str::<Value>(&line) {
             Ok(value) => {
-                saw_completion |= signal.line_is_completion(&value);
+                if signal.line_is_completion(&value) {
+                    saw_completion = true;
+                    if completion_failure.is_none() {
+                        completion_failure = signal.line_failure(&value);
+                    }
+                }
                 for line in renderer.render_value(&value) {
                     rendered.push(line);
                 }
@@ -245,7 +442,7 @@ fn stream_stdout(
         }
     }
 
-    Ok((saw_completion, rendered))
+    Ok((saw_completion, completion_failure, rendered))
 }
 
 fn print_rendered_tail(rendered: &RenderedTail, log_file: &Path) -> Result<()> {
@@ -753,6 +950,7 @@ fn part_text(value: &Value) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value as JsonValue;
 
     fn json(line: &str) -> Value {
         serde_json::from_str(line).unwrap()
@@ -887,5 +1085,113 @@ mod tests {
         }
         assert_eq!(tail.omitted, 2);
         assert_eq!(tail.lines.front().unwrap(), "line 2");
+    }
+
+    #[test]
+    fn test_headless_recorder_writes_running_metadata() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let profile = Profile {
+            command: "agent".to_string(),
+            args: vec!["--json".to_string()],
+            env: Default::default(),
+            interface: AgentInterface::Claude,
+            prompt: PromptDelivery::Argument,
+            headless: true,
+        };
+        let recorder = HeadlessRunRecorder::new(
+            dir.path().join("metadata.json"),
+            "test-profile",
+            &profile,
+            &profile.args,
+            DateTime::parse_from_rfc3339("2026-06-09T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+
+        recorder.write().unwrap();
+        let value: JsonValue =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("metadata.json")).unwrap())
+                .unwrap();
+
+        assert_eq!(value["profile"]["name"], "test-profile");
+        assert_eq!(value["profile"]["command"], "agent");
+        assert_eq!(value["interface"], "claude");
+        assert_eq!(value["prompt_delivery"], "argument");
+        assert_eq!(value["status"], "running");
+        assert_eq!(value["started_at"], "2026-06-09T00:00:00+00:00");
+        assert!(value["exit_code"].is_null());
+    }
+
+    #[test]
+    fn test_headless_recorder_finish_records_success() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let profile = Profile {
+            command: "agent".to_string(),
+            args: vec![],
+            env: Default::default(),
+            interface: AgentInterface::Claude,
+            prompt: PromptDelivery::Argument,
+            headless: true,
+        };
+        let mut recorder = HeadlessRunRecorder::new(
+            dir.path().join("metadata.json"),
+            "test-profile",
+            &profile,
+            &profile.args,
+            Utc::now(),
+        );
+        recorder.write().unwrap();
+
+        #[cfg(unix)]
+        let status = {
+            use std::os::unix::process::ExitStatusExt;
+            ExitStatus::from_raw(0)
+        };
+        #[cfg(not(unix))]
+        let status = { std::process::Command::new("true").status().unwrap() };
+
+        recorder.finish(&status, true, true, None).unwrap();
+        let value: JsonValue =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("metadata.json")).unwrap())
+                .unwrap();
+
+        assert_eq!(value["status"], "success");
+        assert_eq!(value["exit_code"], 0);
+        assert_eq!(value["completion_event_seen"], true);
+        assert!(value["completed_at"].is_string());
+    }
+
+    #[test]
+    fn test_codex_turn_failed_records_completion_failure() {
+        let input = br#"{"type":"turn.failed","error":{"message":"model stopped"}}
+"#;
+
+        let (saw_completion, completion_failure, _) =
+            stream_stdout(&input[..], CompletionSignal::CodexTurnFinished, None).unwrap();
+
+        assert!(saw_completion);
+        assert_eq!(completion_failure.as_deref(), Some("model stopped"));
+    }
+
+    #[test]
+    fn test_stream_stdout_writes_appendable_jsonl_log() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_file = dir.path().join("stdout.jsonl");
+        let input = br#"{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}
+{"type":"result","subtype":"success"}
+"#;
+
+        let (saw_completion, completion_failure, rendered) =
+            stream_stdout(&input[..], CompletionSignal::ClaudeResult, Some(&log_file)).unwrap();
+        let log = fs::read_to_string(&log_file).unwrap();
+
+        assert!(saw_completion);
+        assert!(completion_failure.is_none());
+        assert_eq!(log.lines().count(), 2);
+        assert!(log.ends_with('\n'));
+        assert_eq!(
+            rendered.lines.back().unwrap(),
+            "[turn]  ok  turns=0  dur=0.0s  in=0  out=0  cost=$0.0000"
+        );
     }
 }

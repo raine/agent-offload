@@ -116,11 +116,12 @@ kills the delegated pane. If the tmux pane closes first, the run fails instead
 of hanging silently.
 
 Headless runs execute the configured command in the current terminal and return
-its exit status. Known interfaces use their machine-readable output modes in
-headless mode so completion can be detected from CLI protocol events instead of
-agent-written files. `sideagent` saves the full stdout JSONL stream and prints a
-compact transcript tail plus the log path. Headless `prompt-file-arg` runs also
-write `prompt.md` in the run directory.
+its exit status. Known streaming headless interfaces (`claude`, `codex`,
+`cursor`, `opencode`) create a run directory with `metadata.json`, `stdout.jsonl`,
+and `prompt.md` when applicable. Known interfaces use their machine-readable
+output modes in headless mode so completion can be detected from CLI protocol
+events instead of agent-written files. `sideagent` saves the full stdout JSONL
+stream and prints a compact transcript tail plus the log path.
 
 The delegated pane opens to the right of the tmux pane that runs
 `sideagent`, even if another tmux client is viewing a different window.
@@ -296,6 +297,21 @@ without seeing the expected event. The child process exit status is still
 preserved. Known headless interfaces write the raw stdout JSONL stream to
 `stdout.jsonl` under the run directory and print the last 30 compact rendered
 transcript lines. `generic` profiles keep stdout pass-through behavior.
+
+Known streaming headless interfaces create a run directory with:
+
+| File            | Purpose                                                     |
+| --------------- | ----------------------------------------------------------- |
+| `metadata.json` | Profile, command, interface, timestamps, status, exit code  |
+| `stdout.jsonl`  | Raw machine-readable stdout stream                          |
+| `prompt.md`     | Prompt file for `prompt-file-arg` profiles                  |
+
+`metadata.json` is written when the run starts with `status: "running"` and is
+replaced atomically when the run exits. Completed runs record `status`,
+`completed_at`, `exit_code`, `completion_event_seen`, and `failure` when
+`sideagent` detects a lifecycle error. `generic` keeps stdout pass-through;
+`generic` `prompt-file-arg` runs may create `prompt.md` but do not create a
+machine-readable stdout archive.
 
 ### Environment variables
 

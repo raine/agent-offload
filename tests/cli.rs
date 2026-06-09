@@ -1,5 +1,9 @@
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 fn config_yaml(profile: &str) -> String {
     format!("default_profile: {profile}\nprofiles:\n  {profile}:\n    command: /bin/true\n")
@@ -223,4 +227,125 @@ fn test_invalid_project_config_does_not_fallback_to_user_config() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("could not parse config file") || stderr.contains("default_profile"));
+}
+
+#[cfg(unix)]
+fn write_executable(path: &Path, contents: &str) {
+    fs::write(path, contents).unwrap();
+    let mut perms = fs::metadata(path).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(path, perms).unwrap();
+}
+
+fn headless_runs_dir(home: &Path) -> PathBuf {
+    home.join(".local/state/sideagent/runs")
+}
+
+#[cfg(unix)]
+#[test]
+fn test_headless_known_interface_writes_metadata_and_stdout_jsonl() {
+    let home = tempfile::tempdir().unwrap();
+    let fake_agent = home.path().join("fake-claude.sh");
+    write_executable(
+        &fake_agent,
+        r#"#!/bin/sh
+printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}'
+printf '%s\n' '{"type":"result","subtype":"success","num_turns":0,"duration_ms":0,"total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0}}'
+"#,
+    );
+
+    let config = home.path().join("config.yaml");
+    fs::write(
+        &config,
+        format!(
+            "default_profile: fake-claude\nheadless: true\nprofiles:\n  fake-claude:\n    command: {}\n    interface: claude\n",
+            fake_agent.display()
+        ),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sideagent"))
+        .arg("run")
+        .arg("--config")
+        .arg(&config)
+        .arg("test prompt")
+        .env("HOME", home.path())
+        .output()
+        .expect("failed to run sideagent headless");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[text]  hello"));
+    assert!(stdout.contains("[turn]  ok"));
+    assert!(stdout.contains("Full log:"));
+
+    let runs_dir = headless_runs_dir(home.path());
+    let run_dirs: Vec<_> = fs::read_dir(&runs_dir)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .collect();
+    assert_eq!(run_dirs.len(), 1);
+
+    let run_dir = run_dirs[0].path();
+    let metadata = fs::read_to_string(run_dir.join("metadata.json")).unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+    assert_eq!(metadata["profile"]["name"], "fake-claude");
+    assert_eq!(metadata["interface"], "claude");
+    assert_eq!(metadata["status"], "success");
+    assert_eq!(metadata["exit_code"], 0);
+    assert_eq!(metadata["completion_event_seen"], true);
+    assert!(metadata["started_at"].is_string());
+    assert!(metadata["completed_at"].is_string());
+
+    let stdout_log = fs::read_to_string(run_dir.join("stdout.jsonl")).unwrap();
+    assert!(stdout_log.contains(r#""type":"assistant""#));
+    assert!(stdout_log.contains(r#""type":"result""#));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_headless_generic_prompt_file_arg_writes_prompt_without_stdout_log() {
+    let home = tempfile::tempdir().unwrap();
+    let config = home.path().join("config.yaml");
+    fs::write(
+        &config,
+        "default_profile: generic-prompt-file\nheadless: true\nprofiles:\n  generic-prompt-file:\n    command: /bin/cat\n    interface: generic\n    prompt: prompt-file-arg\n    args:\n      - '{prompt_file}'\n",
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sideagent"))
+        .arg("run")
+        .arg("--config")
+        .arg(&config)
+        .arg("prompt body")
+        .env("HOME", home.path())
+        .output()
+        .expect("failed to run sideagent headless generic prompt-file-arg");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("prompt body"));
+    assert!(!stdout.contains("Full log:"));
+
+    let runs_dir = headless_runs_dir(home.path());
+    let run_dirs: Vec<_> = fs::read_dir(&runs_dir)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .collect();
+    assert_eq!(run_dirs.len(), 1);
+
+    let run_dir = run_dirs[0].path();
+    assert!(run_dir.join("prompt.md").exists());
+    assert!(!run_dir.join("stdout.jsonl").exists());
+    assert!(!run_dir.join("metadata.json").exists());
 }
