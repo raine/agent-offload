@@ -25,13 +25,17 @@ impl RunDir {
     }
 }
 
-pub fn create() -> Result<RunDir> {
+pub fn runs_root() -> Result<PathBuf> {
     let home = dirs::home_dir().context("could not find home directory")?;
-    let runs_dir = home
+    Ok(home
         .join(".local")
         .join("state")
         .join("sideagent")
-        .join("runs");
+        .join("runs"))
+}
+
+pub fn create() -> Result<RunDir> {
+    let runs_dir = runs_root()?;
     fs::create_dir_all(&runs_dir).context("could not create run directory root")?;
     make_private(&runs_dir)?;
 

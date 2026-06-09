@@ -7,6 +7,7 @@ mod config;
 mod headless;
 mod install_skill;
 mod launcher;
+mod monitor;
 mod prompt;
 mod run;
 mod run_dir;
