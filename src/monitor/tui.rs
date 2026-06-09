@@ -12,7 +12,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, List, ListItem, Paragraph, Wrap},
 };
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -37,14 +37,19 @@ pub(crate) fn run(args: crate::MonitorArgs) -> Result<()> {
     run_tui(app)
 }
 
+#[derive(Default)]
+struct RunTranscript {
+    lines: VecDeque<String>,
+    pending_raw: Option<String>,
+}
+
 struct MonitorApp {
     core: MonitorCore,
     poll_interval: Duration,
     runs: Vec<RunSummary>,
     selected: usize,
-    selected_stdout_file: Option<PathBuf>,
-    transcript: VecDeque<String>,
-    pending_raw: Option<String>,
+    selected_run_path: Option<PathBuf>,
+    transcripts: HashMap<PathBuf, RunTranscript>,
 }
 
 impl MonitorApp {
@@ -56,59 +61,74 @@ impl MonitorApp {
             poll_interval,
             runs: Vec::new(),
             selected: 0,
-            selected_stdout_file: None,
-            transcript: VecDeque::new(),
-            pending_raw: None,
+            selected_run_path: None,
+            transcripts: HashMap::new(),
         }
     }
 
     fn poll(&mut self) -> Result<()> {
-        let previous = self.selected_stdout_file.clone();
+        let previous_selected = self.selected_run_path.clone();
         self.runs = self.core.poll_runs()?;
         if self.runs.is_empty() {
             self.selected = 0;
-            self.selected_stdout_file = None;
-            self.transcript.clear();
-            self.pending_raw = None;
+            self.selected_run_path = None;
             return Ok(());
         }
-        self.selected = self.selected.min(self.runs.len() - 1);
-        let stdout_file = self.runs[self.selected].stdout_file.clone();
-        if previous.as_ref() != Some(&stdout_file) {
-            self.transcript.clear();
-            self.pending_raw = None;
-            self.selected_stdout_file = Some(stdout_file);
-        }
-        let update = self.core.poll_stdout(&self.runs[self.selected])?;
+
+        self.selected = previous_selected
+            .as_ref()
+            .and_then(|path| self.runs.iter().position(|run| &run.path == path))
+            .unwrap_or_else(|| self.selected.min(self.runs.len() - 1));
+
+        let selected_run = self.runs[self.selected].clone();
+        self.selected_run_path = Some(selected_run.path.clone());
+        let update = self.core.poll_stdout(&selected_run)?;
+        let transcript = self.transcripts.entry(selected_run.path).or_default();
         for line in update.lines {
-            if self.transcript.len() == Self::MAX_TRANSCRIPT_LINES {
-                self.transcript.pop_front();
+            if transcript.lines.len() == Self::MAX_TRANSCRIPT_LINES {
+                transcript.lines.pop_front();
             }
-            self.transcript.push_back(line);
+            transcript.lines.push_back(line);
         }
-        self.pending_raw = update.pending_raw;
+        transcript.pending_raw = update.pending_raw;
         Ok(())
+    }
+
+    fn set_selected(&mut self, selected: usize) {
+        self.selected = if self.runs.is_empty() {
+            0
+        } else {
+            selected.min(self.runs.len() - 1)
+        };
+        self.selected_run_path = self.runs.get(self.selected).map(|run| run.path.clone());
     }
 
     fn select_next(&mut self) {
         if !self.runs.is_empty() {
-            self.selected = (self.selected + 1).min(self.runs.len() - 1);
+            self.set_selected(self.selected + 1);
         }
     }
 
     fn select_previous(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
+        self.set_selected(self.selected.saturating_sub(1));
     }
 
     fn select_first(&mut self) {
-        self.selected = 0;
+        self.set_selected(0);
     }
 
     fn select_last(&mut self) {
         if !self.runs.is_empty() {
-            self.selected = self.runs.len() - 1;
+            self.set_selected(self.runs.len() - 1);
         }
     }
+}
+
+fn cleanup_terminal_startup<W: io::Write>(writer: &mut W, alternate_screen_entered: bool) {
+    if alternate_screen_entered {
+        let _ = execute!(writer, LeaveAlternateScreen);
+    }
+    let _ = terminal::disable_raw_mode();
 }
 
 struct TerminalGuard {
@@ -118,9 +138,12 @@ struct TerminalGuard {
 impl TerminalGuard {
     fn enter() -> Result<Self> {
         terminal::enable_raw_mode()?;
+        let mut alternate_screen_entered = false;
+
         let entered = (|| -> Result<Self> {
             let mut stdout = io::stdout();
             execute!(stdout, EnterAlternateScreen)?;
+            alternate_screen_entered = true;
             let backend = CrosstermBackend::new(stdout);
             let mut terminal = Terminal::new(backend)?;
             terminal.clear()?;
@@ -128,7 +151,7 @@ impl TerminalGuard {
         })();
 
         if entered.is_err() {
-            let _ = terminal::disable_raw_mode();
+            cleanup_terminal_startup(&mut io::stdout(), alternate_screen_entered);
         }
 
         entered
@@ -218,8 +241,11 @@ fn detail_text(app: &MonitorApp, max_transcript_lines: usize) -> Vec<String> {
     lines.push(String::new());
     lines.push("transcript:".to_string());
 
-    let transcript_lines: Vec<&String> = app
-        .transcript
+    let empty_transcript = RunTranscript::default();
+    let transcript = app.transcripts.get(&run.path).unwrap_or(&empty_transcript);
+
+    let transcript_lines: Vec<&String> = transcript
+        .lines
         .iter()
         .rev()
         .take(max_transcript_lines)
@@ -236,7 +262,7 @@ fn detail_text(app: &MonitorApp, max_transcript_lines: usize) -> Vec<String> {
         }
     }
 
-    if let Some(pending) = app.pending_raw.as_deref() {
+    if let Some(pending) = transcript.pending_raw.as_deref() {
         lines.push(format!("  (partial) {pending}"));
     }
 
@@ -319,6 +345,31 @@ mod tests {
     use super::*;
     use std::fs;
 
+    fn write_run(path: PathBuf, name: &str, started_at: &str, text: &str) {
+        fs::create_dir_all(&path).unwrap();
+        fs::write(
+            path.join("metadata.json"),
+            format!(
+                r#"{{"profile":{{"name":"{name}","command":"agent","args":[]}},"interface":"claude","started_at":"{started_at}","status":"running"}}"#
+            ),
+        )
+        .unwrap();
+        fs::write(
+            path.join("stdout.jsonl"),
+            format!(
+                "{{\"type\":\"assistant\",\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"{text}\"}}]}}}}\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    fn line_count(app: &MonitorApp, expected: &str) -> usize {
+        detail_text(app, usize::MAX)
+            .iter()
+            .filter(|line| line.as_str() == expected)
+            .count()
+    }
+
     #[test]
     fn app_poll_loads_run_and_transcript() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -342,6 +393,87 @@ mod tests {
         app.poll().unwrap();
 
         assert_eq!(app.runs.len(), 1);
-        assert_eq!(app.transcript, vec!["[text]  hello"]);
+        assert_eq!(app.transcripts[&run_path].lines, vec!["[text]  hello"]);
+    }
+
+    #[test]
+    fn app_preserves_transcript_cache_when_switching_runs() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_run(
+            dir.path().join("run-a"),
+            "a",
+            "2026-06-09T00:00:00Z",
+            "first",
+        );
+        write_run(
+            dir.path().join("run-b"),
+            "b",
+            "2026-06-09T01:00:00Z",
+            "second",
+        );
+
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        assert_eq!(line_count(&app, "[text]  second"), 1);
+
+        app.select_next();
+        app.poll().unwrap();
+        assert_eq!(line_count(&app, "[text]  first"), 1);
+
+        app.select_previous();
+        app.poll().unwrap();
+        assert_eq!(line_count(&app, "[text]  second"), 1);
+    }
+
+    #[test]
+    fn app_preserves_selected_run_when_poll_resorts_runs() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_run(
+            dir.path().join("run-a"),
+            "a",
+            "2026-06-09T00:00:00Z",
+            "first",
+        );
+        write_run(
+            dir.path().join("run-b"),
+            "b",
+            "2026-06-09T01:00:00Z",
+            "second",
+        );
+
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        app.select_next();
+        let selected_path = app.runs[app.selected].path.clone();
+
+        write_run(
+            dir.path().join("run-c"),
+            "c",
+            "2026-06-09T02:00:00Z",
+            "third",
+        );
+        app.poll().unwrap();
+
+        assert_eq!(app.runs[app.selected].path, selected_path);
+    }
+
+    #[test]
+    fn cleanup_terminal_startup_leaves_alternate_screen_after_enter() {
+        let mut output = Vec::new();
+        cleanup_terminal_startup(&mut output, true);
+        assert_eq!(output, b"\x1b[?1049l");
+    }
+
+    #[test]
+    fn cleanup_terminal_startup_does_not_leave_alternate_screen_before_enter() {
+        let mut output = Vec::new();
+        cleanup_terminal_startup(&mut output, false);
+        assert!(output.is_empty());
     }
 }
