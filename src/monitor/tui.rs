@@ -91,6 +91,8 @@ struct MonitorApp {
     detail_scroll: u16,
     prompt_expanded: bool,
     prompt_click_area: Option<Rect>,
+    prompt_more_area: Option<Rect>,
+    prompt_more_hovered: bool,
     transcripts: HashMap<PathBuf, RunTranscript>,
     filter_text: String,
     filter_editing: bool,
@@ -121,6 +123,8 @@ impl MonitorApp {
             detail_scroll: 0,
             prompt_expanded: false,
             prompt_click_area: None,
+            prompt_more_area: None,
+            prompt_more_hovered: false,
             transcripts: HashMap::new(),
             filter_text: String::new(),
             filter_editing: false,
@@ -235,6 +239,7 @@ impl MonitorApp {
         }
         self.detail_scroll = 0;
         self.prompt_expanded = false;
+        self.prompt_more_hovered = false;
         self.selected_run_path = self.selected_run().map(|run| run.path.clone());
     }
 
@@ -524,14 +529,22 @@ fn handle_mouse(app: &mut MonitorApp, mouse: crossterm::event::MouseEvent) {
     if app.mode != AppMode::Detail || app.show_help || app.show_run_info {
         return;
     }
-    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-        return;
-    }
-    let Some(area) = app.prompt_click_area else {
-        return;
-    };
-    if rect_contains(area, mouse.column, mouse.row) {
-        app.prompt_expanded = !app.prompt_expanded;
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            let Some(area) = app.prompt_click_area else {
+                return;
+            };
+            if rect_contains(area, mouse.column, mouse.row) {
+                app.prompt_expanded = !app.prompt_expanded;
+                app.prompt_more_hovered = false;
+            }
+        }
+        MouseEventKind::Moved => {
+            app.prompt_more_hovered = app
+                .prompt_more_area
+                .is_some_and(|area| rect_contains(area, mouse.column, mouse.row));
+        }
+        _ => {}
     }
 }
 
@@ -819,14 +832,23 @@ fn prompt_display_lines(lines: Vec<String>, expanded: bool) -> Vec<String> {
     visible
 }
 
-fn render_prompt_block(lines: Vec<String>, expanded: bool) -> Vec<Line<'static>> {
+fn render_prompt_block(
+    lines: Vec<String>,
+    expanded: bool,
+    more_hovered: bool,
+) -> Vec<Line<'static>> {
     let display_lines = prompt_display_lines(lines, expanded);
     display_lines
         .into_iter()
         .enumerate()
         .map(|(index, line)| {
             let is_more = !expanded && index == PROMPT_COLLAPSED_LINES;
-            let style = if is_more {
+            let style = if is_more && more_hovered {
+                Style::default()
+                    .fg(WHITE)
+                    .bg(SELECTED_BG)
+                    .add_modifier(Modifier::ITALIC)
+            } else if is_more {
                 Style::default().fg(TEAL).add_modifier(Modifier::ITALIC)
             } else {
                 Style::default().fg(DIM_WHITE)
@@ -846,6 +868,7 @@ fn render_prompt_block(lines: Vec<String>, expanded: bool) -> Vec<Line<'static>>
 struct DetailRender {
     lines: Vec<Line<'static>>,
     prompt_range: Range<usize>,
+    prompt_more_line: Option<usize>,
 }
 
 fn transcript_line(line: String) -> Line<'static> {
@@ -857,17 +880,14 @@ fn transcript_line(line: String) -> Line<'static> {
             ),
             Span::styled(rest.trim_start().to_string(), Style::default().fg(WHITE)),
         ])
+    } else if let Some(rest) = line.strip_prefix("[tool→]") {
+        tool_transcript_line("tool→", rest, YELLOW)
+    } else if let Some(rest) = line.strip_prefix("[tool✓]") {
+        tool_transcript_line("tool✓", rest, GREEN)
+    } else if let Some(rest) = line.strip_prefix("[tool✗]") {
+        tool_transcript_line("tool✗", rest, RED)
     } else if let Some(rest) = line.strip_prefix("[tool]") {
-        Line::from(vec![
-            Span::styled(
-                "  tool ",
-                Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                rest.trim_start().to_string(),
-                Style::default().fg(DIM_WHITE),
-            ),
-        ])
+        tool_transcript_line("tool ", rest, YELLOW)
     } else if let Some(rest) = line.strip_prefix("[turn]") {
         Line::from(vec![
             Span::styled(
@@ -919,6 +939,33 @@ fn transcript_line(line: String) -> Line<'static> {
     }
 }
 
+fn tool_transcript_line(label: &'static str, rest: &str, color: Color) -> Line<'static> {
+    let rest = rest.trim_start();
+    let (name, detail) = rest.split_once("  ").unwrap_or((rest, ""));
+    let mut spans = vec![
+        Span::styled("  ", Style::default().fg(DIM)),
+        Span::styled("▸", Style::default().fg(color)),
+        Span::styled(" ", Style::default()),
+        Span::styled(
+            format!("{label:<5}"),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
+    ];
+    if !name.is_empty() {
+        spans.push(Span::styled(
+            format!(" {name}"),
+            Style::default().fg(DIM_WHITE),
+        ));
+    }
+    if !detail.is_empty() {
+        spans.push(Span::styled(
+            format!("  {detail}"),
+            Style::default().fg(DIM),
+        ));
+    }
+    Line::from(spans)
+}
+
 fn detail_render(app: &MonitorApp, max_transcript_lines: usize) -> DetailRender {
     let Some(run) = app.selected_run() else {
         return DetailRender {
@@ -927,13 +974,22 @@ fn detail_render(app: &MonitorApp, max_transcript_lines: usize) -> DetailRender 
                 Style::default().fg(DIM),
             ))],
             prompt_range: 0..0,
+            prompt_more_line: None,
         };
     };
+
+    let prompt = prompt_text(run);
+    let prompt_more_line = (!app.prompt_expanded && prompt.len() > PROMPT_COLLAPSED_LINES)
+        .then_some(PROMPT_COLLAPSED_LINES + 1);
 
     let mut lines = Vec::new();
     lines.push(section_header("Prompt"));
     let prompt_start = lines.len() - 1;
-    lines.extend(render_prompt_block(prompt_text(run), app.prompt_expanded));
+    lines.extend(render_prompt_block(
+        prompt,
+        app.prompt_expanded,
+        app.prompt_more_hovered,
+    ));
     let prompt_end = lines.len();
     lines.push(Line::default());
     lines.push(section_header("Artifacts"));
@@ -948,6 +1004,7 @@ fn detail_render(app: &MonitorApp, max_transcript_lines: usize) -> DetailRender 
     DetailRender {
         lines,
         prompt_range: prompt_start..prompt_end,
+        prompt_more_line,
     }
 }
 
@@ -1212,6 +1269,15 @@ fn draw_detail(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area: Rect)
         app.detail_scroll as usize,
         inner_height,
     );
+    app.prompt_more_area = render.prompt_more_line.and_then(|line| {
+        visible_content_range(
+            chunks[1],
+            line..line.saturating_add(1),
+            app.detail_scroll as usize,
+            inner_height,
+        )
+    });
+    app.prompt_more_hovered = app.prompt_more_hovered && app.prompt_more_area.is_some();
     let visible_lines = render
         .lines
         .into_iter()
@@ -1772,6 +1838,20 @@ mod tests {
     }
 
     #[test]
+    fn transcript_tool_lines_split_label_name_and_detail() {
+        let line = transcript_line("[tool→] Read#01  file_path=/tmp/input".to_string());
+        let rendered = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        assert_eq!(rendered, "  ▸ tool→ Read#01  file_path=/tmp/input");
+        assert_eq!(line.spans[4].style.fg, Some(DIM_WHITE));
+        assert!(!line.spans[4].style.add_modifier.contains(Modifier::BOLD));
+        assert_eq!(line.spans[5].style.fg, Some(DIM));
+    }
+
+    #[test]
     fn detail_collapses_long_prompt() {
         let dir = tempfile::TempDir::new().unwrap();
         let run_path = dir.path().join("run-a");
@@ -1793,8 +1873,20 @@ mod tests {
         let lines = render_prompt_block(
             vec!["before".to_string(), String::new(), "after".to_string()],
             true,
+            false,
         );
         assert!(lines[1].spans.is_empty());
+    }
+
+    #[test]
+    fn prompt_more_line_has_hover_style() {
+        let lines = render_prompt_block(
+            (1..=12).map(|line| format!("line {line}")).collect(),
+            false,
+            true,
+        );
+        assert_eq!(lines[10].spans[1].style.bg, Some(SELECTED_BG));
+        assert_eq!(lines[10].spans[1].style.fg, Some(WHITE));
     }
 
     #[test]
@@ -1812,6 +1904,39 @@ mod tests {
         let lines = detail_text(&app, usize::MAX);
         assert!(lines.contains(&"  line 11".to_string()));
         assert!(!lines.contains(&"  +2 more lines".to_string()));
+    }
+
+    #[test]
+    fn hovering_more_line_sets_hover_state() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_active_run(
+            dir.path().join("run-a"),
+            "a",
+            "2026-06-09T00:00:00Z",
+            "first",
+        );
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        app.mode = AppMode::Detail;
+        app.prompt_more_area = Some(Rect {
+            x: 2,
+            y: 3,
+            width: 10,
+            height: 1,
+        });
+        handle_mouse(
+            &mut app,
+            crossterm::event::MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 4,
+                row: 3,
+                modifiers: KeyModifiers::empty(),
+            },
+        );
+        assert!(app.prompt_more_hovered);
     }
 
     #[test]
