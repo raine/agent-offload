@@ -109,25 +109,61 @@ fn parse_started_at(value: Option<&str>) -> Option<DateTime<FixedOffset>> {
     value.and_then(|value| DateTime::parse_from_rfc3339(value).ok())
 }
 
-fn reconcile_run_state(metadata: &RunMetadata) -> RunState {
+fn reconcile_run_state(metadata: &RunMetadata, run_id: &str) -> RunState {
     let state = RunState::from_status(metadata.status.as_deref());
     if state != RunState::Active {
         return state;
     }
+    match run_liveness(metadata, run_id) {
+        Liveness::Alive | Liveness::Unknown => RunState::Active,
+        Liveness::Dead(_) => RunState::Failed,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Liveness {
+    Alive,
+    Dead(DeadReason),
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DeadReason {
+    TmuxPane,
+    Process,
+    RunOwner,
+}
+
+fn run_liveness(metadata: &RunMetadata, run_id: &str) -> Liveness {
     if let Some(pane_id) = metadata.tmux_pane_id.as_deref() {
         return match tmux::pane_status(pane_id) {
-            Ok(tmux::PaneStatus::Alive) => RunState::Active,
-            Ok(tmux::PaneStatus::Dead | tmux::PaneStatus::Missing) => RunState::Failed,
-            Err(_) => RunState::Active,
+            Ok(tmux::PaneStatus::Alive) => Liveness::Alive,
+            Ok(tmux::PaneStatus::Dead | tmux::PaneStatus::Missing) => {
+                Liveness::Dead(DeadReason::TmuxPane)
+            }
+            Err(_) => Liveness::Unknown,
         };
     }
     if let Some(pid) = metadata.pid {
-        return match process_status(pid) {
-            ProcessStatus::Alive | ProcessStatus::Unknown => RunState::Active,
-            ProcessStatus::Dead => RunState::Failed,
-        };
+        return process_liveness(pid, DeadReason::Process);
     }
-    state
+    if let Some(pid) = run_owner_pid(run_id) {
+        return process_liveness(pid, DeadReason::RunOwner);
+    }
+    Liveness::Unknown
+}
+
+fn process_liveness(pid: u32, dead_reason: DeadReason) -> Liveness {
+    match process_status(pid) {
+        ProcessStatus::Alive => Liveness::Alive,
+        ProcessStatus::Dead => Liveness::Dead(dead_reason),
+        ProcessStatus::Unknown => Liveness::Unknown,
+    }
+}
+
+fn run_owner_pid(run_id: &str) -> Option<u32> {
+    let (_, pid) = run_id.rsplit_once('-')?;
+    pid.parse().ok()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,30 +205,25 @@ fn unix_process_status(pid: u32) -> ProcessStatus {
     }
 }
 
-fn stale_failure_message(metadata: &RunMetadata) -> Option<String> {
+fn stale_failure_message(metadata: &RunMetadata, run_id: &str) -> Option<String> {
     if metadata.status.as_deref() != Some("running") {
         return metadata.failure.clone();
     }
     if metadata.failure.is_some() {
         return metadata.failure.clone();
     }
-    if metadata.tmux_pane_id.as_deref().is_some_and(pane_is_dead) {
-        return Some("recorded tmux pane is no longer alive".to_string());
+    match run_liveness(metadata, run_id) {
+        Liveness::Dead(DeadReason::TmuxPane) => {
+            Some("recorded tmux pane is no longer alive".to_string())
+        }
+        Liveness::Dead(DeadReason::Process) => {
+            Some("recorded process is no longer alive".to_string())
+        }
+        Liveness::Dead(DeadReason::RunOwner) => {
+            Some("run owner process from archive id is no longer alive".to_string())
+        }
+        Liveness::Alive | Liveness::Unknown => None,
     }
-    if metadata
-        .pid
-        .is_some_and(|pid| process_status(pid) == ProcessStatus::Dead)
-    {
-        return Some("recorded process is no longer alive".to_string());
-    }
-    None
-}
-
-fn pane_is_dead(pane_id: &str) -> bool {
-    matches!(
-        tmux::pane_status(pane_id),
-        Ok(tmux::PaneStatus::Dead | tmux::PaneStatus::Missing)
-    )
 }
 
 fn load_run_summary(id: String, run_dir: RunDir) -> RunSummary {
@@ -269,8 +300,8 @@ fn load_run_summary(id: String, run_dir: RunDir) -> RunSummary {
         }
     };
 
-    let state = reconcile_run_state(&metadata);
-    let failure = stale_failure_message(&metadata);
+    let state = reconcile_run_state(&metadata, &id);
+    let failure = stale_failure_message(&metadata, &id);
 
     RunSummary {
         id,
@@ -387,6 +418,25 @@ mod tests {
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].state, RunState::Active);
         assert!(runs[0].failure.is_none());
+    }
+
+    #[test]
+    fn poll_runs_marks_running_run_with_dead_owner_pid_as_failed_history() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_metadata(
+            dir.path().join("1781071956577-99999999"),
+            "running",
+            "2026-06-09T00:00:00Z",
+        );
+
+        let runs = poll_runs(dir.path()).unwrap();
+
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].state, RunState::Failed);
+        assert_eq!(
+            runs[0].failure.as_deref(),
+            Some("run owner process from archive id is no longer alive")
+        );
     }
 
     #[test]
