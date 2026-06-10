@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -205,6 +205,28 @@ fn unix_process_status(pid: u32) -> ProcessStatus {
     }
 }
 
+fn reconcile_completed_at(metadata: &RunMetadata, run_id: &str) -> Option<String> {
+    if metadata.completed_at.is_some() {
+        return metadata.completed_at.clone();
+    }
+    if RunState::from_status(metadata.status.as_deref()) != RunState::Active {
+        return None;
+    }
+    match run_liveness(metadata, run_id) {
+        Liveness::Dead(_) => stale_completed_at(metadata),
+        Liveness::Alive | Liveness::Unknown => None,
+    }
+}
+
+fn stale_completed_at(metadata: &RunMetadata) -> Option<String> {
+    metadata
+        .started_at
+        .as_deref()
+        .and_then(|started| parse_started_at(Some(started)))
+        .map(|started| started.to_rfc3339())
+        .or_else(|| Some(Utc::now().to_rfc3339()))
+}
+
 fn stale_failure_message(metadata: &RunMetadata, run_id: &str) -> Option<String> {
     if metadata.status.as_deref() != Some("running") {
         return metadata.failure.clone();
@@ -301,6 +323,7 @@ fn load_run_summary(id: String, run_dir: RunDir) -> RunSummary {
     };
 
     let state = reconcile_run_state(&metadata, &id);
+    let completed_at = reconcile_completed_at(&metadata, &id);
     let failure = stale_failure_message(&metadata, &id);
 
     RunSummary {
@@ -320,7 +343,7 @@ fn load_run_summary(id: String, run_dir: RunDir) -> RunSummary {
         pid: metadata.pid,
         tmux_pane_id: metadata.tmux_pane_id,
         started_at: metadata.started_at,
-        completed_at: metadata.completed_at,
+        completed_at,
         exit_code: metadata.exit_code,
         completion_event_seen: metadata.completion_event_seen,
         failure,
@@ -394,6 +417,10 @@ mod tests {
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].state, RunState::Failed);
         assert_eq!(
+            runs[0].completed_at.as_deref(),
+            Some("2026-06-09T00:00:00+00:00")
+        );
+        assert_eq!(
             runs[0].failure.as_deref(),
             Some("recorded process is no longer alive")
         );
@@ -433,6 +460,10 @@ mod tests {
 
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].state, RunState::Failed);
+        assert_eq!(
+            runs[0].completed_at.as_deref(),
+            Some("2026-06-09T00:00:00+00:00")
+        );
         assert_eq!(
             runs[0].failure.as_deref(),
             Some("run owner process from archive id is no longer alive")
