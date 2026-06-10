@@ -89,6 +89,7 @@ struct MonitorApp {
     filter_editing: bool,
     filter_draft: String,
     show_help: bool,
+    show_run_info: bool,
     tick: usize,
 }
 
@@ -116,6 +117,7 @@ impl MonitorApp {
             filter_editing: false,
             filter_draft: String::new(),
             show_help: false,
+            show_run_info: false,
             tick: 0,
         }
     }
@@ -392,6 +394,15 @@ fn handle_key(app: &mut MonitorApp, key: KeyEvent) -> bool {
         return false;
     }
 
+    if app.show_run_info {
+        match key.code {
+            KeyCode::Char('i') | KeyCode::Esc => app.show_run_info = false,
+            KeyCode::Char('q') => return true,
+            _ => {}
+        }
+        return false;
+    }
+
     if app.filter_editing {
         match key.code {
             KeyCode::Enter => app.accept_filter(),
@@ -437,17 +448,24 @@ fn handle_detail_key(app: &mut MonitorApp, key: KeyEvent) -> bool {
     match key.code {
         KeyCode::Char('q') => return true,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return true,
-        KeyCode::Esc => app.mode = AppMode::Table,
+        KeyCode::Esc => {
+            if app.show_run_info {
+                app.show_run_info = false;
+            } else {
+                app.mode = AppMode::Table;
+            }
+        }
         KeyCode::Char('?') => app.show_help = true,
+        KeyCode::Char('i') => app.show_run_info = !app.show_run_info,
         KeyCode::Down | KeyCode::Char('j') => {
             app.detail_scroll = app.detail_scroll.saturating_add(1)
         }
         KeyCode::Up | KeyCode::Char('k') => app.detail_scroll = app.detail_scroll.saturating_sub(1),
         KeyCode::PageDown | KeyCode::Char('d') => {
-            app.detail_scroll = app.detail_scroll.saturating_add(10)
+            app.detail_scroll = app.detail_scroll.saturating_add(20)
         }
         KeyCode::PageUp | KeyCode::Char('u') => {
-            app.detail_scroll = app.detail_scroll.saturating_sub(10)
+            app.detail_scroll = app.detail_scroll.saturating_sub(20)
         }
         KeyCode::Home | KeyCode::Char('g') => app.detail_scroll = 0,
         KeyCode::End | KeyCode::Char('G') => app.detail_scroll = u16::MAX,
@@ -558,78 +576,74 @@ fn format_duration(millis: u64) -> String {
     }
 }
 
-fn detail_text(app: &MonitorApp, max_transcript_lines: usize) -> Vec<String> {
-    let Some(run) = app.selected_run() else {
-        return vec!["No run selected.".to_string()];
-    };
-
+fn run_info_text(run: &RunSummary) -> Vec<String> {
     let mut lines = vec![
-        "Run".to_string(),
-        format!("  id: {}", run.id),
-        format!("  state: {}", state_label(run.state)),
-        format!("  project: {}", project_label(run)),
-        format!("  profile: {}", profile_label(run)),
+        format!("id: {}", run.id),
+        format!("state: {}", state_label(run.state)),
+        format!("project: {}", project_label(run)),
+        format!("profile: {}", profile_label(run)),
         format!(
-            "  command: {}",
+            "command: {}",
             run.profile_command.as_deref().unwrap_or("unknown")
         ),
-        format!("  args: {}", format_args(&run.profile_args)),
+        format!("args: {}", format_profile_args(&run.profile_args)),
         format!(
-            "  interface: {}",
+            "interface: {}",
             run.interface.as_deref().unwrap_or("unknown")
         ),
-        format!("  mode: {}", mode_label(run)),
+        format!("mode: {}", mode_label(run)),
         format!(
-            "  prompt delivery: {}",
+            "prompt delivery: {}",
             run.prompt_delivery.as_deref().unwrap_or("unknown")
         ),
         format!(
-            "  started: {}",
+            "started: {}",
             run.started_at.as_deref().unwrap_or("unknown")
         ),
     ];
 
     if let Some(completed_at) = run.completed_at.as_deref() {
-        lines.push(format!("  completed: {completed_at}"));
+        lines.push(format!("completed: {completed_at}"));
     }
-    lines.push(format!("  duration: {}", run_duration(run)));
+    lines.push(format!("duration: {}", run_duration(run)));
     if let Some(exit_code) = run.exit_code {
-        lines.push(format!("  exit code: {exit_code}"));
+        lines.push(format!("exit code: {exit_code}"));
     }
     if let Some(seen) = run.completion_event_seen {
-        lines.push(format!("  completion event seen: {seen}"));
+        lines.push(format!("completion event seen: {seen}"));
     }
     if let Some(failure) = run.failure.as_deref() {
-        lines.push(format!("  failure: {failure}"));
+        lines.push(format!("failure: {failure}"));
     }
     if let Some(error) = run.metadata_error.as_deref() {
-        lines.push(format!("  metadata error: {error}"));
+        lines.push(format!("metadata error: {error}"));
     }
     if let Some(pid) = run.pid {
-        lines.push(format!("  pid: {pid}"));
+        lines.push(format!("pid: {pid}"));
     }
     if let Some(pane_id) = run.tmux_pane_id.as_deref() {
-        lines.push(format!("  tmux pane: {pane_id}"));
+        lines.push(format!("tmux pane: {pane_id}"));
     }
-    lines.push(format!("  run directory: {}", run.path.display()));
+    lines.push(format!("run directory: {}", run.path.display()));
+    lines
+}
 
-    lines.push(String::new());
-    lines.push("Prompt".to_string());
+fn prompt_text(run: &RunSummary) -> Vec<String> {
     let prompt_path = run.path.join("prompt.md");
     match fs::read_to_string(&prompt_path) {
-        Ok(prompt) if !prompt.trim().is_empty() => {
-            lines.extend(prompt.lines().map(|line| format!("  {line}")));
-        }
-        _ => lines.push("  (prompt not archived)".to_string()),
+        Ok(prompt) if !prompt.trim().is_empty() => prompt.lines().map(str::to_string).collect(),
+        _ => vec!["(prompt not archived for this run)".to_string()],
     }
+}
 
-    lines.push(String::new());
-    lines.push("Transcript".to_string());
-
+fn transcript_text(app: &MonitorApp, max_transcript_lines: usize) -> Vec<String> {
+    let Some(run) = app.selected_run() else {
+        return vec!["No run selected.".to_string()];
+    };
     let empty_transcript = RunTranscript::default();
     let transcript = app.transcripts.get(&run.path).unwrap_or(&empty_transcript);
 
-    let transcript_lines: Vec<&String> = transcript
+    let mut lines: Vec<String> = transcript
         .lines
         .iter()
         .rev()
@@ -637,30 +651,19 @@ fn detail_text(app: &MonitorApp, max_transcript_lines: usize) -> Vec<String> {
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
+        .cloned()
         .collect();
 
-    if transcript_lines.is_empty() {
-        lines.push("  (no output yet)".to_string());
-    } else {
-        for line in transcript_lines {
-            lines.push(format!("  {line}"));
-        }
+    if lines.is_empty() {
+        lines.push("(no output yet)".to_string());
     }
-
     if let Some(pending) = transcript.pending_raw.as_deref() {
-        lines.push(format!("  (partial) {pending}"));
+        lines.push(format!("(partial) {pending}"));
     }
-
-    lines.push(String::new());
-    lines.push("Artifacts".to_string());
-    for artifact in artifacts(run) {
-        lines.push(format!("  {artifact}"));
-    }
-
     lines
 }
 
-fn format_args(args: &[String]) -> String {
+fn format_profile_args(args: &[String]) -> String {
     if args.is_empty() {
         "(none)".to_string()
     } else {
@@ -688,11 +691,129 @@ fn artifacts(run: &RunSummary) -> Vec<String> {
     artifacts
 }
 
-fn detail_lines(app: &MonitorApp, max_transcript_lines: usize) -> Vec<Line<'static>> {
-    detail_text(app, max_transcript_lines)
+fn detail_text(app: &MonitorApp, max_transcript_lines: usize) -> Vec<String> {
+    let Some(run) = app.selected_run() else {
+        return vec!["No run selected.".to_string()];
+    };
+
+    let mut lines = vec!["Run info".to_string()];
+    lines.extend(
+        run_info_text(run)
+            .into_iter()
+            .map(|line| format!("  {line}")),
+    );
+    lines.push(String::new());
+    lines.push("Prompt".to_string());
+    lines.extend(prompt_text(run).into_iter().map(|line| format!("  {line}")));
+    lines.push(String::new());
+    lines.push("Transcript".to_string());
+    lines.extend(
+        transcript_text(app, max_transcript_lines)
+            .into_iter()
+            .map(|line| format!("  {line}")),
+    );
+    lines.push(String::new());
+    lines.push("Artifacts".to_string());
+    for artifact in artifacts(run) {
+        lines.push(format!("  {artifact}"));
+    }
+    lines
+}
+
+fn section_header(title: &'static str) -> Line<'static> {
+    Line::from(vec![Span::styled(
+        format!("  {title}"),
+        Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+    )])
+}
+
+fn render_plain_block(lines: impl IntoIterator<Item = String>, style: Style) -> Vec<Line<'static>> {
+    lines
         .into_iter()
-        .map(|line| Line::from(Span::raw(line)))
+        .map(|line| Line::from(vec![Span::raw("    "), Span::styled(line, style)]))
         .collect()
+}
+
+fn transcript_line(line: String) -> Line<'static> {
+    if let Some(rest) = line.strip_prefix("[text]") {
+        Line::from(vec![
+            Span::styled(
+                "  text ",
+                Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(rest.trim_start().to_string(), Style::default().fg(WHITE)),
+        ])
+    } else if let Some(rest) = line.strip_prefix("[tool]") {
+        Line::from(vec![
+            Span::styled(
+                "  tool ",
+                Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                rest.trim_start().to_string(),
+                Style::default().fg(DIM_WHITE),
+            ),
+        ])
+    } else if let Some(rest) = line.strip_prefix("[turn]") {
+        Line::from(vec![
+            Span::styled(
+                "  turn ",
+                Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                rest.trim_start().to_string(),
+                Style::default().fg(DIM_WHITE),
+            ),
+        ])
+    } else if let Some(rest) = line.strip_prefix("[raw]") {
+        Line::from(vec![
+            Span::styled(
+                "  raw  ",
+                Style::default().fg(DIM).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(rest.trim_start().to_string(), Style::default().fg(DIM)),
+        ])
+    } else if line == "(no output yet)" || line.starts_with("(partial)") {
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                line,
+                Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
+            ),
+        ])
+    } else {
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled(line, Style::default().fg(DIM_WHITE)),
+        ])
+    }
+}
+
+fn detail_lines(app: &MonitorApp, max_transcript_lines: usize) -> Vec<Line<'static>> {
+    let Some(run) = app.selected_run() else {
+        return vec![Line::from(Span::styled(
+            "No run selected.",
+            Style::default().fg(DIM),
+        ))];
+    };
+
+    let mut lines = Vec::new();
+    lines.push(section_header("Prompt"));
+    lines.extend(render_plain_block(
+        prompt_text(run),
+        Style::default().fg(DIM_WHITE),
+    ));
+    lines.push(Line::default());
+    lines.push(section_header("Transcript"));
+    lines.extend(
+        transcript_text(app, max_transcript_lines)
+            .into_iter()
+            .map(transcript_line),
+    );
+    lines.push(Line::default());
+    lines.push(section_header("Artifacts"));
+    lines.extend(render_plain_block(artifacts(run), Style::default().fg(DIM)));
+    lines
 }
 
 fn draw(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp) {
@@ -938,28 +1059,117 @@ fn draw_detail(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area: Rect)
             Constraint::Length(1),
         ])
         .split(area);
-    draw_header(frame, app, chunks[0]);
-    let height = chunks[1].height.saturating_sub(2) as usize;
-    let detail = Paragraph::new(detail_lines(
-        app,
-        height.saturating_add(app.detail_scroll as usize),
-    ))
-    .block(table_block(" Run detail ", true))
-    .scroll((app.detail_scroll, 0))
-    .wrap(Wrap { trim: false });
+    draw_detail_header(frame, app, chunks[0]);
+
+    let inner_height = chunks[1].height.saturating_sub(2) as usize;
+    let lines = detail_lines(app, usize::MAX);
+    let max_scroll = lines.len().saturating_sub(inner_height) as u16;
+    app.detail_scroll = app.detail_scroll.min(max_scroll);
+    let visible_lines = lines
+        .into_iter()
+        .skip(app.detail_scroll as usize)
+        .take(inner_height)
+        .collect::<Vec<_>>();
+    let detail = Paragraph::new(visible_lines)
+        .block(table_block(" Run detail ", true))
+        .wrap(Wrap { trim: false });
     frame.render_widget(detail, chunks[1]);
     let footer = Paragraph::new(Line::from(vec![
         Span::styled(" Esc", Style::default().fg(TEAL)),
         Span::styled(" table  ", Style::default().fg(DIM_WHITE)),
+        Span::styled("i", Style::default().fg(TEAL)),
+        Span::styled(" info  ", Style::default().fg(DIM_WHITE)),
         Span::styled("j/k", Style::default().fg(TEAL)),
         Span::styled(" scroll  ", Style::default().fg(DIM_WHITE)),
-        Span::styled("?", Style::default().fg(TEAL)),
+        Span::styled(
+            format!("{}/{}", app.detail_scroll, max_scroll),
+            Style::default().fg(DIM),
+        ),
+        Span::styled("  ?", Style::default().fg(TEAL)),
         Span::styled(" help  ", Style::default().fg(DIM_WHITE)),
         Span::styled("q", Style::default().fg(TEAL)),
         Span::styled(" quit", Style::default().fg(DIM_WHITE)),
     ]))
     .style(Style::default().bg(BG));
     frame.render_widget(footer, chunks[2]);
+
+    if app.show_run_info {
+        draw_run_info_overlay(frame, app, area);
+    }
+}
+
+fn draw_detail_header(frame: &mut ratatui::Frame<'_>, app: &MonitorApp, area: Rect) {
+    let Some(run) = app.selected_run() else {
+        draw_header(frame, app, area);
+        return;
+    };
+    let line = Line::from(vec![
+        Span::styled(
+            format!(" {} ", run.id),
+            Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(profile_label(run).to_string(), Style::default().fg(WHITE)),
+        Span::styled("  ", Style::default()),
+        Span::styled(
+            run.interface.as_deref().unwrap_or("unknown").to_string(),
+            Style::default().fg(DIM_WHITE),
+        ),
+        Span::styled("  ", Style::default()),
+        Span::styled(mode_label(run).to_string(), Style::default().fg(DIM)),
+        Span::styled("  ", Style::default()),
+        Span::styled(
+            stage_label(run, app.tick),
+            Style::default().fg(status_color(run.state)),
+        ),
+        Span::styled("  ", Style::default()),
+        Span::styled(run_duration(run), Style::default().fg(DIM_WHITE)),
+    ]);
+    frame.render_widget(Paragraph::new(line).style(Style::default().bg(BG)), area);
+}
+
+fn draw_run_info_overlay(frame: &mut ratatui::Frame<'_>, app: &MonitorApp, area: Rect) {
+    let Some(run) = app.selected_run() else {
+        return;
+    };
+    let text = run_info_text(run);
+    let content_width = text
+        .iter()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(20) as u16;
+    let width = content_width
+        .saturating_add(6)
+        .clamp(42, area.width.saturating_sub(4).max(1));
+    let height = (text.len() as u16)
+        .saturating_add(4)
+        .min(area.height.saturating_sub(2).max(1));
+    let popup = Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    };
+    frame.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(" Run info ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(TEAL))
+        .style(Style::default().bg(BG));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let mut lines = vec![Line::default()];
+    lines.extend(text.into_iter().map(|line| {
+        let Some((key, value)) = line.split_once(": ") else {
+            return Line::from(Span::styled(line, Style::default().fg(DIM_WHITE)));
+        };
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled(format!("{key:<22}"), Style::default().fg(DIM)),
+            Span::styled(value.to_string(), Style::default().fg(WHITE)),
+        ])
+    }));
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn draw_help(frame: &mut ratatui::Frame<'_>, app: &MonitorApp) {
@@ -979,6 +1189,7 @@ fn draw_help(frame: &mut ratatui::Frame<'_>, app: &MonitorApp) {
             ("d / PageDown", "Page down"),
             ("u / PageUp", "Page up"),
             ("g / G", "Scroll to top or bottom"),
+            ("i", "Toggle run info"),
             ("Esc", "Back to table"),
             ("q", "Quit"),
             ("?", "Toggle this help"),
@@ -1255,6 +1466,29 @@ mod tests {
             profile_label(&app.runs[app.filtered_history_indices[0]]),
             "alpha"
         );
+    }
+
+    #[test]
+    fn detail_scroll_is_clamped_to_content() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_active_run(
+            dir.path().join("run-a"),
+            "a",
+            "2026-06-09T00:00:00Z",
+            "first",
+        );
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        app.detail_scroll = u16::MAX;
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 20)).unwrap();
+        terminal
+            .draw(|frame| draw_detail(frame, &mut app, frame.area()))
+            .unwrap();
+        assert!(app.detail_scroll < u16::MAX);
     }
 
     #[test]

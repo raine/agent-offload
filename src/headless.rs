@@ -42,11 +42,14 @@ pub fn run_headless(profile_name: &str, profile: &Profile, prompt: &str) -> Resu
         .collect();
     args.extend(profile.args.iter().cloned());
 
+    if let Some(run_dir) = headless_run.as_ref() {
+        fs::write(&run_dir.prompt_file, prompt).context("could not write prompt file")?;
+    }
+
     if matches!(profile.prompt, PromptDelivery::PromptFileArg) {
         let run_dir = headless_run
             .as_ref()
             .context("headless run directory was not created")?;
-        fs::write(&run_dir.prompt_file, prompt).context("could not write prompt file")?;
         let prompt_file = run_dir.prompt_file.to_string_lossy().to_string();
         for arg in args.iter_mut() {
             if arg.contains("{prompt_file}") {

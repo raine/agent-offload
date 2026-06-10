@@ -303,6 +303,11 @@ printf '%s\n' '{"type":"result","subtype":"success","num_turns":0,"duration_ms":
     assert!(metadata["started_at"].is_string());
     assert!(metadata["completed_at"].is_string());
 
+    assert_eq!(
+        fs::read_to_string(run_dir.join("prompt.md")).unwrap(),
+        "test prompt"
+    );
+
     let stdout_log = fs::read_to_string(run_dir.join("stdout.jsonl")).unwrap();
     assert!(stdout_log.contains(r#""type":"assistant""#));
     assert!(stdout_log.contains(r#""type":"result""#));
