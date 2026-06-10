@@ -101,6 +101,12 @@ pub fn run_headless(profile_name: &str, profile: &Profile, prompt: &str) -> Resu
         prompt,
         signal,
         stdout_log_file.as_deref(),
+        |pid| {
+            if let Some(recorder) = recorder.as_mut() {
+                recorder.record_pid(pid)?;
+            }
+            Ok(())
+        },
     ) {
         Ok(result) => result,
         Err(error) => {
@@ -128,15 +134,23 @@ pub fn run_headless(profile_name: &str, profile: &Profile, prompt: &str) -> Resu
             failure,
         )?;
     }
+    let exit_code = result.status.code().unwrap_or(1);
     if let Some(failure) = missing_completion_failure {
-        bail!(failure);
+        if exit_code == 0 {
+            bail!(failure);
+        }
+        eprintln!("{failure}");
+    } else if let Some(failure) = result.completion_failure.as_deref()
+        && exit_code == 0
+    {
+        bail!(failure.to_string());
     }
 
     if let Some(stdout_log_file) = &stdout_log_file {
         print_rendered_tail(&result.rendered, stdout_log_file)?;
     }
 
-    Ok(result.status.code().unwrap_or(1))
+    Ok(exit_code)
 }
 
 struct HeadlessRun {
@@ -157,6 +171,7 @@ struct HeadlessRunMetadata {
     exit_code: Option<i32>,
     completion_event_seen: Option<bool>,
     failure: Option<String>,
+    pid: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -187,6 +202,7 @@ impl HeadlessRunRecorder {
                     command: profile.command.clone(),
                     args: args.to_vec(),
                 },
+                pid: None,
                 interface: interface_name(profile.interface).to_string(),
                 prompt_delivery: prompt_delivery_name(profile.prompt).to_string(),
                 started_at: started_at.to_rfc3339(),
@@ -207,6 +223,11 @@ impl HeadlessRunRecorder {
         fs::rename(&tmp, &self.metadata_file)
             .with_context(|| format!("could not replace {}", self.metadata_file.display()))?;
         Ok(())
+    }
+
+    fn record_pid(&mut self, pid: u32) -> Result<()> {
+        self.metadata.pid = Some(pid);
+        self.write()
     }
 
     fn finish(
@@ -346,6 +367,7 @@ fn spawn_and_wait(
     prompt: &str,
     signal: CompletionSignal,
     log_file: Option<&Path>,
+    mut on_spawn: impl FnMut(u32) -> Result<()>,
 ) -> Result<HeadlessRun> {
     match prompt_delivery {
         PromptDelivery::Stdin => {
@@ -354,6 +376,7 @@ fn spawn_and_wait(
                 .spawn()
                 .context("could not spawn headless agent")?;
 
+            on_spawn(child.id())?;
             if let Some(mut stdin) = child.stdin.take() {
                 stdin
                     .write_all(prompt.as_bytes())
@@ -368,6 +391,7 @@ fn spawn_and_wait(
                 .arg(prompt)
                 .spawn()
                 .context("could not spawn headless agent")?;
+            on_spawn(child.id())?;
             wait_with_stdout(child, signal, log_file)
         }
         PromptDelivery::PromptFileArg => {
@@ -375,6 +399,7 @@ fn spawn_and_wait(
                 .stdin(Stdio::null())
                 .spawn()
                 .context("could not spawn headless agent")?;
+            on_spawn(child.id())?;
             wait_with_stdout(child, signal, log_file)
         }
     }
@@ -392,7 +417,14 @@ fn wait_with_stdout(
     };
 
     let status = child.wait().context("could not wait for headless agent")?;
-    let (saw_completion, completion_failure, rendered) = stream_result?;
+    let (saw_completion, completion_failure, rendered) = match stream_result {
+        Ok(result) => result,
+        Err(error) => (
+            false,
+            Some(format!("could not record headless stdout: {error:#}")),
+            RenderedTail::default(),
+        ),
+    };
 
     Ok(HeadlessRun {
         status,
@@ -564,7 +596,7 @@ mod tests {
             prompt: PromptDelivery::Argument,
             headless: true,
         };
-        let recorder = HeadlessRunRecorder::new(
+        let mut recorder = HeadlessRunRecorder::new(
             dir.path().join("metadata.json"),
             "test-profile",
             &profile,
@@ -575,6 +607,7 @@ mod tests {
         );
 
         recorder.write().unwrap();
+        recorder.record_pid(1234).unwrap();
         let value: JsonValue =
             serde_json::from_str(&fs::read_to_string(dir.path().join("metadata.json")).unwrap())
                 .unwrap();
@@ -583,6 +616,7 @@ mod tests {
         assert_eq!(value["profile"]["command"], "agent");
         assert_eq!(value["interface"], "claude");
         assert_eq!(value["prompt_delivery"], "argument");
+        assert_eq!(value["pid"], 1234);
         assert_eq!(value["status"], "running");
         assert_eq!(value["started_at"], "2026-06-09T00:00:00+00:00");
         assert!(value["exit_code"].is_null());
@@ -624,6 +658,39 @@ mod tests {
         assert_eq!(value["status"], "success");
         assert_eq!(value["exit_code"], 0);
         assert_eq!(value["completion_event_seen"], true);
+        assert!(value["completed_at"].is_string());
+    }
+
+    #[test]
+    fn test_headless_recorder_fail_without_exit_records_failure() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let profile = Profile {
+            command: "agent".to_string(),
+            args: vec![],
+            env: Default::default(),
+            interface: AgentInterface::Claude,
+            prompt: PromptDelivery::Argument,
+            headless: true,
+        };
+        let mut recorder = HeadlessRunRecorder::new(
+            dir.path().join("metadata.json"),
+            "test-profile",
+            &profile,
+            &profile.args,
+            Utc::now(),
+        );
+        recorder.write().unwrap();
+
+        recorder
+            .fail_without_exit("could not spawn agent".to_string())
+            .unwrap();
+        let value: JsonValue =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("metadata.json")).unwrap())
+                .unwrap();
+
+        assert_eq!(value["status"], "failed");
+        assert!(value["exit_code"].is_null());
+        assert_eq!(value["failure"], "could not spawn agent");
         assert!(value["completed_at"].is_string());
     }
 

@@ -315,6 +315,64 @@ printf '%s\n' '{"type":"result","subtype":"success","num_turns":0,"duration_ms":
 
 #[cfg(unix)]
 #[test]
+fn test_headless_known_interface_finalizes_missing_completion_as_failed() {
+    let home = tempfile::tempdir().unwrap();
+    let fake_agent = home.path().join("fake-claude.sh");
+    write_executable(
+        &fake_agent,
+        r#"#!/bin/sh
+printf '%s\n' '{"type":"system","subtype":"init"}'
+exit 7
+"#,
+    );
+
+    let config = home.path().join("config.yaml");
+    fs::write(
+        &config,
+        format!(
+            "default_profile: fake-claude\nheadless: true\nprofiles:\n  fake-claude:\n    command: {}\n    interface: claude\n",
+            fake_agent.display()
+        ),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sideagent"))
+        .arg("run")
+        .arg("--config")
+        .arg(&config)
+        .arg("test prompt")
+        .env("HOME", home.path())
+        .output()
+        .expect("failed to run sideagent headless");
+
+    assert_eq!(output.status.code(), Some(7));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("exited without a completion event"));
+
+    let runs_dir = headless_runs_dir(home.path());
+    let run_dirs: Vec<_> = fs::read_dir(&runs_dir)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .collect();
+    assert_eq!(run_dirs.len(), 1);
+
+    let metadata = fs::read_to_string(run_dirs[0].path().join("metadata.json")).unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+    assert_eq!(metadata["status"], "failed");
+    assert_eq!(metadata["exit_code"], 7);
+    assert_eq!(metadata["completion_event_seen"], false);
+    assert!(
+        metadata["failure"]
+            .as_str()
+            .unwrap()
+            .contains("completion event")
+    );
+    assert!(metadata["pid"].is_number());
+    assert!(metadata["completed_at"].is_string());
+}
+
+#[cfg(unix)]
+#[test]
 fn test_headless_generic_prompt_file_arg_writes_prompt_without_stdout_log() {
     let home = tempfile::tempdir().unwrap();
     let config = home.path().join("config.yaml");

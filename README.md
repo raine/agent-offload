@@ -293,8 +293,8 @@ Headless mode chooses completion detection from `interface`:
 | `opencode` | `--format json`                            | JSON stream ends when the CLI exits  |
 
 For interfaces with terminal events, `sideagent` fails if the process exits
-without seeing the expected event. The child process exit status is still
-preserved. Known headless interfaces write the raw stdout JSONL stream to
+without seeing the expected event. If the child already failed, that exit status
+is still preserved. Known headless interfaces write the raw stdout JSONL stream to
 `stdout.jsonl` under the run directory and print the last 30 compact rendered
 transcript lines. `generic` profiles keep stdout pass-through behavior.
 
@@ -368,10 +368,12 @@ sideagent monitor --runs-root ~/.local/state/sideagent/runs --poll-interval-ms 5
 
 The monitor reads run directories under `~/.local/state/sideagent/runs/` by
 default. It uses `metadata.json` for table rows and status, and tails
-`stdout.jsonl` for the selected run detail view. The table view shows Active and
-History sections. Use `Tab` to switch focus, `Up` and `Down` or `k` and `j` to
-navigate, `Enter` to open detail, `i` to show run metadata, `Esc` to return
-from detail, `/` to filter history, `?` for help, and `q` to quit.
+`stdout.jsonl` for the selected run detail view. Running archives with a stored
+process id or tmux pane id are reconciled with live process state, so dead stale
+runs move to History as failed instead of staying Active forever. The table view
+shows Active and History sections. Use `Tab` to switch focus, `Up` and `Down` or
+`k` and `j` to navigate, `Enter` to open detail, `i` to show run metadata, `Esc`
+to return from detail, `/` to filter history, `?` for help, and `q` to quit.
 
 Options:
 

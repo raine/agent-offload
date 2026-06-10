@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::run_dir::RunDir;
+use crate::tmux;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RunState {
@@ -108,6 +109,92 @@ fn parse_started_at(value: Option<&str>) -> Option<DateTime<FixedOffset>> {
     value.and_then(|value| DateTime::parse_from_rfc3339(value).ok())
 }
 
+fn reconcile_run_state(metadata: &RunMetadata) -> RunState {
+    let state = RunState::from_status(metadata.status.as_deref());
+    if state != RunState::Active {
+        return state;
+    }
+    if let Some(pane_id) = metadata.tmux_pane_id.as_deref() {
+        return match tmux::pane_status(pane_id) {
+            Ok(tmux::PaneStatus::Alive) => RunState::Active,
+            Ok(tmux::PaneStatus::Dead | tmux::PaneStatus::Missing) => RunState::Failed,
+            Err(_) => RunState::Active,
+        };
+    }
+    if let Some(pid) = metadata.pid {
+        return match process_status(pid) {
+            ProcessStatus::Alive | ProcessStatus::Unknown => RunState::Active,
+            ProcessStatus::Dead => RunState::Failed,
+        };
+    }
+    state
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProcessStatus {
+    Alive,
+    Dead,
+    Unknown,
+}
+
+fn process_status(pid: u32) -> ProcessStatus {
+    if pid == 0 {
+        return ProcessStatus::Dead;
+    }
+
+    let current = std::process::id();
+    if pid == current {
+        return ProcessStatus::Alive;
+    }
+
+    #[cfg(unix)]
+    {
+        unix_process_status(pid)
+    }
+    #[cfg(not(unix))]
+    {
+        ProcessStatus::Unknown
+    }
+}
+
+#[cfg(unix)]
+fn unix_process_status(pid: u32) -> ProcessStatus {
+    use std::process::Command;
+
+    let output = Command::new("kill").arg("-0").arg(pid.to_string()).output();
+    match output {
+        Ok(output) if output.status.success() => ProcessStatus::Alive,
+        Ok(_) => ProcessStatus::Dead,
+        Err(_) => ProcessStatus::Unknown,
+    }
+}
+
+fn stale_failure_message(metadata: &RunMetadata) -> Option<String> {
+    if metadata.status.as_deref() != Some("running") {
+        return metadata.failure.clone();
+    }
+    if metadata.failure.is_some() {
+        return metadata.failure.clone();
+    }
+    if metadata.tmux_pane_id.as_deref().is_some_and(pane_is_dead) {
+        return Some("recorded tmux pane is no longer alive".to_string());
+    }
+    if metadata
+        .pid
+        .is_some_and(|pid| process_status(pid) == ProcessStatus::Dead)
+    {
+        return Some("recorded process is no longer alive".to_string());
+    }
+    None
+}
+
+fn pane_is_dead(pane_id: &str) -> bool {
+    matches!(
+        tmux::pane_status(pane_id),
+        Ok(tmux::PaneStatus::Dead | tmux::PaneStatus::Missing)
+    )
+}
+
 fn load_run_summary(id: String, run_dir: RunDir) -> RunSummary {
     let metadata_path = run_dir.metadata_file.clone();
     let stdout_file = run_dir.stdout_file.clone();
@@ -182,11 +269,14 @@ fn load_run_summary(id: String, run_dir: RunDir) -> RunSummary {
         }
     };
 
+    let state = reconcile_run_state(&metadata);
+    let failure = stale_failure_message(&metadata);
+
     RunSummary {
         id,
         path,
         stdout_file,
-        state: RunState::from_status(metadata.status.as_deref()),
+        state,
         profile_name: metadata.profile.as_ref().and_then(|p| p.name.clone()),
         profile_command: metadata.profile.as_ref().and_then(|p| p.command.clone()),
         profile_args: metadata
@@ -202,7 +292,7 @@ fn load_run_summary(id: String, run_dir: RunDir) -> RunSummary {
         completed_at: metadata.completed_at,
         exit_code: metadata.exit_code,
         completion_event_seen: metadata.completion_event_seen,
-        failure: metadata.failure,
+        failure,
         metadata_error: None,
     }
 }
@@ -213,6 +303,10 @@ mod tests {
     use std::fs;
 
     fn write_metadata(path: PathBuf, status: &str, started_at: &str) {
+        write_metadata_fields(path, status, started_at, "");
+    }
+
+    fn write_metadata_fields(path: PathBuf, status: &str, started_at: &str, fields: &str) {
         fs::create_dir_all(&path).unwrap();
         let metadata = format!(
             r#"{{
@@ -224,7 +318,7 @@ mod tests {
   "interface": "claude",
   "prompt_delivery": "argument",
   "started_at": "{started_at}",
-  "status": "{status}"
+  "status": "{status}"{fields}
 }}"#
         );
         fs::write(path.join("metadata.json"), metadata).unwrap();
@@ -248,6 +342,51 @@ mod tests {
         assert_eq!(runs[1].state, RunState::Failed);
         assert_eq!(runs[2].state, RunState::Active);
         assert_eq!(runs[3].state, RunState::Unknown);
+    }
+
+    #[test]
+    fn poll_runs_marks_dead_pid_run_as_failed_history() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_metadata_fields(
+            dir.path().join("dead"),
+            "running",
+            "2026-06-09T00:00:00Z",
+            r#",
+  "pid": 99999999,
+  "completed_at": null,
+  "exit_code": null,
+  "completion_event_seen": null"#,
+        );
+
+        let runs = poll_runs(dir.path()).unwrap();
+
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].state, RunState::Failed);
+        assert_eq!(
+            runs[0].failure.as_deref(),
+            Some("recorded process is no longer alive")
+        );
+    }
+
+    #[test]
+    fn poll_runs_keeps_current_pid_active() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_metadata_fields(
+            dir.path().join("live"),
+            "running",
+            "2026-06-09T00:00:00Z",
+            &format!(
+                r#",
+  "pid": {}"#,
+                std::process::id()
+            ),
+        );
+
+        let runs = poll_runs(dir.path()).unwrap();
+
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].state, RunState::Active);
+        assert!(runs[0].failure.is_none());
     }
 
     #[test]
