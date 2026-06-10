@@ -63,7 +63,7 @@ enum AppMode {
     Detail,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Focus {
     Active,
     History,
@@ -237,10 +237,26 @@ impl MonitorApp {
     }
 
     fn select_next(&mut self) {
+        if self.focus == Focus::Active
+            && self.active_selected + 1 >= self.active_indices.len()
+            && !self.filtered_history_indices.is_empty()
+        {
+            self.focus = Focus::History;
+            self.selected_run_path = self.selected_run().map(|run| run.path.clone());
+            return;
+        }
         self.set_selected_position(self.selected_position() + 1);
     }
 
     fn select_previous(&mut self) {
+        if self.focus == Focus::History
+            && self.history_selected == 0
+            && !self.active_indices.is_empty()
+        {
+            self.focus = Focus::Active;
+            self.selected_run_path = self.selected_run().map(|run| run.path.clone());
+            return;
+        }
         self.set_selected_position(self.selected_position().saturating_sub(1));
     }
 
@@ -913,6 +929,7 @@ fn draw_active_table(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area:
         "Mode",
         "Stage",
         "Dur",
+        "",
     ])
     .style(Style::default().fg(TEAL).add_modifier(Modifier::BOLD));
     let rows = app
@@ -928,6 +945,7 @@ fn draw_active_table(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area:
                 mode_label(run).to_string(),
                 stage_label(run, app.tick),
                 run_duration(run),
+                String::new(),
             ])
             .style(Style::default().fg(DIM_WHITE))
         })
@@ -942,8 +960,9 @@ fn draw_active_table(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area:
             Constraint::Length(18),
             Constraint::Length(10),
             Constraint::Length(9),
-            Constraint::Min(12),
+            Constraint::Length(18),
             Constraint::Length(8),
+            Constraint::Min(0),
         ],
     )
     .header(header)
@@ -968,6 +987,7 @@ fn draw_history_table(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area
         "Duration",
         "Exit",
         "✓",
+        "",
     ])
     .style(Style::default().fg(TEAL).add_modifier(Modifier::BOLD));
     let rows = app
@@ -986,6 +1006,7 @@ fn draw_history_table(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area
                     .map(|code| code.to_string())
                     .unwrap_or_else(|| "?".to_string()),
                 status_icon(run.state).to_string(),
+                String::new(),
             ])
             .style(Style::default().fg(status_color(run.state)))
         })
@@ -1003,6 +1024,7 @@ fn draw_history_table(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area
             Constraint::Length(10),
             Constraint::Length(6),
             Constraint::Length(2),
+            Constraint::Min(0),
         ],
     )
     .header(header)
@@ -1447,6 +1469,58 @@ mod tests {
         app.select_previous();
         app.poll().unwrap();
         assert_eq!(line_count(&app, "  [text]  second"), 1);
+    }
+
+    #[test]
+    fn arrow_down_moves_from_active_to_history() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_active_run(
+            dir.path().join("run-active"),
+            "active",
+            "2026-06-09T00:00:00Z",
+            "active",
+        );
+        write_run(
+            dir.path().join("run-done"),
+            "done",
+            "2026-06-09T01:00:00Z",
+            "success",
+            "done",
+        );
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        app.focus = Focus::Active;
+        app.select_next();
+        assert_eq!(app.focus, Focus::History);
+    }
+
+    #[test]
+    fn arrow_up_moves_from_history_to_active() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_active_run(
+            dir.path().join("run-active"),
+            "active",
+            "2026-06-09T00:00:00Z",
+            "active",
+        );
+        write_run(
+            dir.path().join("run-done"),
+            "done",
+            "2026-06-09T01:00:00Z",
+            "success",
+            "done",
+        );
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        app.focus = Focus::History;
+        app.select_previous();
+        assert_eq!(app.focus, Focus::Active);
     }
 
     #[test]
