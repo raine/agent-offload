@@ -1,7 +1,10 @@
 use anyhow::Result;
 use chrono::{DateTime, FixedOffset, Utc};
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+        MouseButton, MouseEventKind,
+    },
     execute,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -16,6 +19,7 @@ use ratatui::{
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -33,6 +37,7 @@ const YELLOW: Color = Color::Rgb(220, 200, 100);
 const DIM: Color = Color::Rgb(100, 100, 110);
 const SELECTED_BG: Color = Color::Rgb(40, 40, 50);
 const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const PROMPT_COLLAPSED_LINES: usize = 10;
 
 pub(crate) fn run(args: crate::MonitorArgs) -> Result<()> {
     let runs_root = match args.runs_root {
@@ -84,6 +89,8 @@ struct MonitorApp {
     active_table_state: TableState,
     history_table_state: TableState,
     detail_scroll: u16,
+    prompt_expanded: bool,
+    prompt_click_area: Option<Rect>,
     transcripts: HashMap<PathBuf, RunTranscript>,
     filter_text: String,
     filter_editing: bool,
@@ -112,6 +119,8 @@ impl MonitorApp {
             active_table_state: TableState::default(),
             history_table_state: TableState::default(),
             detail_scroll: 0,
+            prompt_expanded: false,
+            prompt_click_area: None,
             transcripts: HashMap::new(),
             filter_text: String::new(),
             filter_editing: false,
@@ -225,6 +234,7 @@ impl MonitorApp {
             }
         }
         self.detail_scroll = 0;
+        self.prompt_expanded = false;
         self.selected_run_path = self.selected_run().map(|run| run.path.clone());
     }
 
@@ -342,7 +352,14 @@ fn run_matches_filter(run: &RunSummary, needle: &str) -> bool {
         || state_label(run.state).contains(needle)
 }
 
-fn cleanup_terminal_startup<W: io::Write>(writer: &mut W, alternate_screen_entered: bool) {
+fn cleanup_terminal_startup<W: io::Write>(
+    writer: &mut W,
+    alternate_screen_entered: bool,
+    mouse_capture_enabled: bool,
+) {
+    if mouse_capture_enabled {
+        let _ = execute!(writer, DisableMouseCapture);
+    }
     if alternate_screen_entered {
         let _ = execute!(writer, LeaveAlternateScreen);
     }
@@ -357,11 +374,14 @@ impl TerminalGuard {
     fn enter() -> Result<Self> {
         terminal::enable_raw_mode()?;
         let mut alternate_screen_entered = false;
+        let mut mouse_capture_enabled = false;
 
         let entered = (|| -> Result<Self> {
             let mut stdout = io::stdout();
             execute!(stdout, EnterAlternateScreen)?;
             alternate_screen_entered = true;
+            execute!(stdout, EnableMouseCapture)?;
+            mouse_capture_enabled = true;
             let backend = CrosstermBackend::new(stdout);
             let mut terminal = Terminal::new(backend)?;
             terminal.clear()?;
@@ -369,7 +389,11 @@ impl TerminalGuard {
         })();
 
         if entered.is_err() {
-            cleanup_terminal_startup(&mut io::stdout(), alternate_screen_entered);
+            cleanup_terminal_startup(
+                &mut io::stdout(),
+                alternate_screen_entered,
+                mouse_capture_enabled,
+            );
         }
 
         entered
@@ -379,7 +403,11 @@ impl TerminalGuard {
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = terminal::disable_raw_mode();
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
+        let _ = execute!(
+            self.terminal.backend_mut(),
+            DisableMouseCapture,
+            LeaveAlternateScreen
+        );
         let _ = self.terminal.show_cursor();
     }
 }
@@ -389,11 +417,12 @@ fn run_tui(mut app: MonitorApp) -> Result<()> {
     loop {
         guard.terminal.draw(|frame| draw(frame, &mut app))?;
 
-        if event::poll(app.poll_interval)?
-            && let Event::Key(key) = event::read()?
-            && handle_key(&mut app, key)
-        {
-            break;
+        if event::poll(app.poll_interval)? {
+            match event::read()? {
+                Event::Key(key) if handle_key(&mut app, key) => break,
+                Event::Mouse(mouse) => handle_mouse(&mut app, mouse),
+                _ => {}
+            }
         }
 
         app.poll()?;
@@ -473,6 +502,7 @@ fn handle_detail_key(app: &mut MonitorApp, key: KeyEvent) -> bool {
         }
         KeyCode::Char('?') => app.show_help = true,
         KeyCode::Char('i') => app.show_run_info = !app.show_run_info,
+        KeyCode::Char('p') => app.prompt_expanded = !app.prompt_expanded,
         KeyCode::Down | KeyCode::Char('j') => {
             app.detail_scroll = app.detail_scroll.saturating_add(1)
         }
@@ -488,6 +518,28 @@ fn handle_detail_key(app: &mut MonitorApp, key: KeyEvent) -> bool {
         _ => {}
     }
     false
+}
+
+fn handle_mouse(app: &mut MonitorApp, mouse: crossterm::event::MouseEvent) {
+    if app.mode != AppMode::Detail || app.show_help || app.show_run_info {
+        return;
+    }
+    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        return;
+    }
+    let Some(area) = app.prompt_click_area else {
+        return;
+    };
+    if rect_contains(area, mouse.column, mouse.row) {
+        app.prompt_expanded = !app.prompt_expanded;
+    }
+}
+
+fn rect_contains(rect: Rect, column: u16, row: u16) -> bool {
+    column >= rect.x
+        && column < rect.x.saturating_add(rect.width)
+        && row >= rect.y
+        && row < rect.y.saturating_add(rect.height)
 }
 
 fn state_label(state: RunState) -> &'static str {
@@ -720,7 +772,11 @@ fn detail_text(app: &MonitorApp, max_transcript_lines: usize) -> Vec<String> {
     );
     lines.push(String::new());
     lines.push("Prompt".to_string());
-    lines.extend(prompt_text(run).into_iter().map(|line| format!("  {line}")));
+    lines.extend(
+        prompt_display_lines(prompt_text(run), app.prompt_expanded)
+            .into_iter()
+            .map(|line| format!("  {line}")),
+    );
     lines.push(String::new());
     lines.push("Artifacts".to_string());
     for artifact in artifacts(run) {
@@ -748,6 +804,48 @@ fn render_plain_block(lines: impl IntoIterator<Item = String>, style: Style) -> 
         .into_iter()
         .map(|line| Line::from(vec![Span::raw("    "), Span::styled(line, style)]))
         .collect()
+}
+
+fn prompt_display_lines(lines: Vec<String>, expanded: bool) -> Vec<String> {
+    if expanded || lines.len() <= PROMPT_COLLAPSED_LINES {
+        return lines;
+    }
+    let remaining = lines.len().saturating_sub(PROMPT_COLLAPSED_LINES);
+    let mut visible = lines
+        .into_iter()
+        .take(PROMPT_COLLAPSED_LINES)
+        .collect::<Vec<_>>();
+    visible.push(format!("+{remaining} more lines"));
+    visible
+}
+
+fn render_prompt_block(lines: Vec<String>, expanded: bool) -> Vec<Line<'static>> {
+    let display_lines = prompt_display_lines(lines, expanded);
+    display_lines
+        .into_iter()
+        .enumerate()
+        .map(|(index, line)| {
+            let is_more = !expanded && index == PROMPT_COLLAPSED_LINES;
+            let style = if is_more {
+                Style::default().fg(TEAL).add_modifier(Modifier::ITALIC)
+            } else {
+                Style::default().fg(DIM_WHITE)
+            };
+            if line.trim().is_empty() {
+                Line::default()
+            } else {
+                Line::from(vec![
+                    Span::raw("    "),
+                    Span::styled(line.trim_end().to_string(), style),
+                ])
+            }
+        })
+        .collect()
+}
+
+struct DetailRender {
+    lines: Vec<Line<'static>>,
+    prompt_range: Range<usize>,
 }
 
 fn transcript_line(line: String) -> Line<'static> {
@@ -821,20 +919,22 @@ fn transcript_line(line: String) -> Line<'static> {
     }
 }
 
-fn detail_lines(app: &MonitorApp, max_transcript_lines: usize) -> Vec<Line<'static>> {
+fn detail_render(app: &MonitorApp, max_transcript_lines: usize) -> DetailRender {
     let Some(run) = app.selected_run() else {
-        return vec![Line::from(Span::styled(
-            "No run selected.",
-            Style::default().fg(DIM),
-        ))];
+        return DetailRender {
+            lines: vec![Line::from(Span::styled(
+                "No run selected.",
+                Style::default().fg(DIM),
+            ))],
+            prompt_range: 0..0,
+        };
     };
 
     let mut lines = Vec::new();
     lines.push(section_header("Prompt"));
-    lines.extend(render_plain_block(
-        prompt_text(run),
-        Style::default().fg(DIM_WHITE),
-    ));
+    let prompt_start = lines.len() - 1;
+    lines.extend(render_prompt_block(prompt_text(run), app.prompt_expanded));
+    let prompt_end = lines.len();
     lines.push(Line::default());
     lines.push(section_header("Artifacts"));
     lines.extend(render_plain_block(artifacts(run), Style::default().fg(DIM)));
@@ -845,7 +945,10 @@ fn detail_lines(app: &MonitorApp, max_transcript_lines: usize) -> Vec<Line<'stat
             .into_iter()
             .map(transcript_line),
     );
-    lines
+    DetailRender {
+        lines,
+        prompt_range: prompt_start..prompt_end,
+    }
 }
 
 fn draw(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp) {
@@ -1100,10 +1203,17 @@ fn draw_detail(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area: Rect)
     draw_detail_header(frame, app, chunks[0]);
 
     let inner_height = chunks[1].height.saturating_sub(2) as usize;
-    let lines = detail_lines(app, usize::MAX);
-    let max_scroll = lines.len().saturating_sub(inner_height) as u16;
+    let render = detail_render(app, usize::MAX);
+    let max_scroll = render.lines.len().saturating_sub(inner_height) as u16;
     app.detail_scroll = app.detail_scroll.min(max_scroll);
-    let visible_lines = lines
+    app.prompt_click_area = visible_content_range(
+        chunks[1],
+        render.prompt_range.clone(),
+        app.detail_scroll as usize,
+        inner_height,
+    );
+    let visible_lines = render
+        .lines
         .into_iter()
         .skip(app.detail_scroll as usize)
         .take(inner_height)
@@ -1117,6 +1227,8 @@ fn draw_detail(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area: Rect)
         Span::styled(" table  ", Style::default().fg(DIM_WHITE)),
         Span::styled("i", Style::default().fg(TEAL)),
         Span::styled(" info  ", Style::default().fg(DIM_WHITE)),
+        Span::styled("p", Style::default().fg(TEAL)),
+        Span::styled(" prompt  ", Style::default().fg(DIM_WHITE)),
         Span::styled("j/k", Style::default().fg(TEAL)),
         Span::styled(" scroll  ", Style::default().fg(DIM_WHITE)),
         Span::styled(
@@ -1134,6 +1246,30 @@ fn draw_detail(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area: Rect)
     if app.show_run_info {
         draw_run_info_overlay(frame, app, area);
     }
+}
+
+fn visible_content_range(
+    outer: Rect,
+    content_range: Range<usize>,
+    scroll: usize,
+    height: usize,
+) -> Option<Rect> {
+    let visible_start = scroll;
+    let visible_end = scroll.saturating_add(height);
+    let start = content_range.start.max(visible_start);
+    let end = content_range.end.min(visible_end);
+    if start >= end {
+        return None;
+    }
+    Some(Rect {
+        x: outer.x.saturating_add(1),
+        y: outer
+            .y
+            .saturating_add(1)
+            .saturating_add(start.saturating_sub(visible_start) as u16),
+        width: outer.width.saturating_sub(2),
+        height: end.saturating_sub(start) as u16,
+    })
 }
 
 fn draw_detail_header(frame: &mut ratatui::Frame<'_>, app: &MonitorApp, area: Rect) {
@@ -1259,6 +1395,7 @@ fn draw_help(frame: &mut ratatui::Frame<'_>, app: &MonitorApp) {
             ("u / PageUp", "Page up"),
             ("g / G", "Scroll to top or bottom"),
             ("i", "Toggle run info"),
+            ("p / click", "Expand or collapse prompt"),
             ("Esc", "Back to table"),
             ("q", "Quit"),
             ("?", "Toggle this help"),
@@ -1381,6 +1518,14 @@ mod tests {
             ),
         )
         .unwrap();
+    }
+
+    fn write_prompt(path: PathBuf, lines: usize) {
+        let prompt = (1..=lines)
+            .map(|line| format!("line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(path.join("prompt.md"), prompt).unwrap();
     }
 
     fn write_active_run(path: PathBuf, name: &str, started_at: &str, text: &str) {
@@ -1627,6 +1772,107 @@ mod tests {
     }
 
     #[test]
+    fn detail_collapses_long_prompt() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let run_path = dir.path().join("run-a");
+        write_active_run(run_path.clone(), "a", "2026-06-09T00:00:00Z", "first");
+        write_prompt(run_path, 12);
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        let lines = detail_text(&app, usize::MAX);
+        assert!(lines.contains(&"  line 10".to_string()));
+        assert!(lines.contains(&"  +2 more lines".to_string()));
+        assert!(!lines.contains(&"  line 11".to_string()));
+    }
+
+    #[test]
+    fn prompt_blank_lines_render_without_indent() {
+        let lines = render_prompt_block(
+            vec!["before".to_string(), String::new(), "after".to_string()],
+            true,
+        );
+        assert!(lines[1].spans.is_empty());
+    }
+
+    #[test]
+    fn detail_expands_long_prompt() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let run_path = dir.path().join("run-a");
+        write_active_run(run_path.clone(), "a", "2026-06-09T00:00:00Z", "first");
+        write_prompt(run_path, 12);
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        app.prompt_expanded = true;
+        let lines = detail_text(&app, usize::MAX);
+        assert!(lines.contains(&"  line 11".to_string()));
+        assert!(!lines.contains(&"  +2 more lines".to_string()));
+    }
+
+    #[test]
+    fn clicking_visible_prompt_toggles_expansion() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_active_run(
+            dir.path().join("run-a"),
+            "a",
+            "2026-06-09T00:00:00Z",
+            "first",
+        );
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        app.mode = AppMode::Detail;
+        app.prompt_click_area = Some(Rect {
+            x: 2,
+            y: 3,
+            width: 10,
+            height: 2,
+        });
+        handle_mouse(
+            &mut app,
+            crossterm::event::MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 4,
+                row: 4,
+                modifiers: KeyModifiers::empty(),
+            },
+        );
+        assert!(app.prompt_expanded);
+    }
+
+    #[test]
+    fn selecting_another_run_collapses_prompt() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_active_run(
+            dir.path().join("run-a"),
+            "a",
+            "2026-06-09T00:00:00Z",
+            "first",
+        );
+        write_active_run(
+            dir.path().join("run-b"),
+            "b",
+            "2026-06-09T01:00:00Z",
+            "second",
+        );
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        app.prompt_expanded = true;
+        app.select_next();
+        assert!(!app.prompt_expanded);
+    }
+
+    #[test]
     fn detail_scroll_is_clamped_to_content() {
         let dir = tempfile::TempDir::new().unwrap();
         write_active_run(
@@ -1652,14 +1898,24 @@ mod tests {
     #[test]
     fn cleanup_terminal_startup_leaves_alternate_screen_after_enter() {
         let mut output = Vec::new();
-        cleanup_terminal_startup(&mut output, true);
+        cleanup_terminal_startup(&mut output, true, false);
         assert_eq!(output, b"\x1b[?1049l");
     }
 
     #[test]
     fn cleanup_terminal_startup_does_not_leave_alternate_screen_before_enter() {
         let mut output = Vec::new();
-        cleanup_terminal_startup(&mut output, false);
+        cleanup_terminal_startup(&mut output, false, false);
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn cleanup_terminal_startup_disables_mouse_capture_after_enter() {
+        let mut output = Vec::new();
+        cleanup_terminal_startup(&mut output, true, true);
+        assert_eq!(
+            output,
+            b"\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1049l"
+        );
     }
 }

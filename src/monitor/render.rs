@@ -151,6 +151,10 @@ fn render_claude_system(value: &Value) -> Vec<String> {
         .or_else(|| str_field(value, "subtype"))
         .or_else(|| str_field(value, "type"))
         .unwrap_or("system");
+    if event == "thinking_tokens" {
+        return Vec::new();
+    }
+
     let hook = str_field(value, "hook_name");
     let outcome = str_field(value, "outcome");
     let exit_code = value.get("exit_code").and_then(Value::as_i64);
@@ -602,6 +606,14 @@ mod tests {
             r#"{"type":"text","part":{"text":"done with the change"}}"#,
         ));
         assert_eq!(lines, vec!["[text]  done with the change"]);
+    }
+
+    #[test]
+    fn test_claude_system_thinking_tokens_are_hidden() {
+        let mut renderer = CompactRenderer::new(RendererKind::Claude);
+        let lines =
+            renderer.render_value(&json(r#"{"type":"system","subtype":"thinking_tokens"}"#));
+        assert!(lines.is_empty());
     }
 
     #[test]
