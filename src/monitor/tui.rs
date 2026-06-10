@@ -544,6 +544,7 @@ fn handle_mouse(app: &mut MonitorApp, mouse: crossterm::event::MouseEvent) {
     if app.mode != AppMode::Detail || app.show_help || app.show_run_info {
         return;
     }
+    update_prompt_hover(app, mouse.column, mouse.row);
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             let Some(area) = app.prompt_click_area else {
@@ -554,13 +555,16 @@ fn handle_mouse(app: &mut MonitorApp, mouse: crossterm::event::MouseEvent) {
                 app.prompt_more_hovered = false;
             }
         }
-        MouseEventKind::Moved => {
-            app.prompt_more_hovered = app
-                .prompt_more_area
-                .is_some_and(|area| rect_contains(area, mouse.column, mouse.row));
-        }
+        MouseEventKind::Moved | MouseEventKind::Drag(MouseButton::Left) => {}
         _ => {}
     }
+}
+
+fn update_prompt_hover(app: &mut MonitorApp, column: u16, row: u16) {
+    app.prompt_more_hovered = app.prompt_more_area.is_some()
+        && app
+            .prompt_click_area
+            .is_some_and(|area| rect_contains(area, column, row));
 }
 
 fn rect_contains(rect: Rect, column: u16, row: u16) -> bool {
@@ -2339,7 +2343,7 @@ mod tests {
     }
 
     #[test]
-    fn hovering_more_line_sets_hover_state() {
+    fn hovering_prompt_sets_hover_state_for_more_line() {
         let dir = tempfile::TempDir::new().unwrap();
         write_active_run(
             dir.path().join("run-a"),
@@ -2353,9 +2357,15 @@ mod tests {
         );
         app.poll().unwrap();
         app.mode = AppMode::Detail;
-        app.prompt_more_area = Some(Rect {
+        app.prompt_click_area = Some(Rect {
             x: 2,
             y: 3,
+            width: 10,
+            height: 4,
+        });
+        app.prompt_more_area = Some(Rect {
+            x: 2,
+            y: 6,
             width: 10,
             height: 1,
         });
@@ -2369,6 +2379,46 @@ mod tests {
             },
         );
         assert!(app.prompt_more_hovered);
+    }
+
+    #[test]
+    fn hovering_outside_prompt_clears_hover_state() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_active_run(
+            dir.path().join("run-a"),
+            "a",
+            "2026-06-09T00:00:00Z",
+            "first",
+        );
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        app.mode = AppMode::Detail;
+        app.prompt_more_hovered = true;
+        app.prompt_click_area = Some(Rect {
+            x: 2,
+            y: 3,
+            width: 10,
+            height: 4,
+        });
+        app.prompt_more_area = Some(Rect {
+            x: 2,
+            y: 6,
+            width: 10,
+            height: 1,
+        });
+        handle_mouse(
+            &mut app,
+            crossterm::event::MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 20,
+                row: 3,
+                modifiers: KeyModifiers::empty(),
+            },
+        );
+        assert!(!app.prompt_more_hovered);
     }
 
     #[test]
