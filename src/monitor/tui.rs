@@ -1476,6 +1476,37 @@ fn draw_active_table(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area:
         app.active_table_state.select(None);
     }
     frame.render_stateful_widget(table, area, &mut app.active_table_state);
+    if app.active_indices.is_empty() {
+        draw_empty_active_placeholder(frame, area);
+    }
+}
+
+fn draw_empty_active_placeholder(frame: &mut ratatui::Frame<'_>, area: Rect) {
+    if area.height < 4 || area.width < 24 {
+        return;
+    }
+    let placeholder_area = Rect {
+        x: area.x.saturating_add(2),
+        y: area.y.saturating_add(2),
+        width: area.width.saturating_sub(4),
+        height: area.height.saturating_sub(3),
+    };
+    let lines = vec![
+        Line::from(Span::styled(
+            "No active runs",
+            Style::default().fg(DIM_WHITE).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            "New headless runs will appear here.",
+            Style::default().fg(DIM),
+        )),
+    ];
+    frame.render_widget(
+        Paragraph::new(lines)
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(BG)),
+        placeholder_area,
+    );
 }
 
 fn draw_history_table(frame: &mut ratatui::Frame<'_>, app: &mut MonitorApp, area: Rect) {
