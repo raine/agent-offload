@@ -706,17 +706,17 @@ fn detail_text(app: &MonitorApp, max_transcript_lines: usize) -> Vec<String> {
     lines.push("Prompt".to_string());
     lines.extend(prompt_text(run).into_iter().map(|line| format!("  {line}")));
     lines.push(String::new());
+    lines.push("Artifacts".to_string());
+    for artifact in artifacts(run) {
+        lines.push(format!("  {artifact}"));
+    }
+    lines.push(String::new());
     lines.push("Transcript".to_string());
     lines.extend(
         transcript_text(app, max_transcript_lines)
             .into_iter()
             .map(|line| format!("  {line}")),
     );
-    lines.push(String::new());
-    lines.push("Artifacts".to_string());
-    for artifact in artifacts(run) {
-        lines.push(format!("  {artifact}"));
-    }
     lines
 }
 
@@ -773,6 +773,22 @@ fn transcript_line(line: String) -> Line<'static> {
             ),
             Span::styled(rest.trim_start().to_string(), Style::default().fg(DIM)),
         ])
+    } else if let Some(rest) = line.strip_prefix("[system]") {
+        Line::from(vec![
+            Span::styled(
+                "  sys  ",
+                Style::default().fg(DIM).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(rest.trim_start().to_string(), Style::default().fg(DIM)),
+        ])
+    } else if let Some(rest) = line.strip_prefix("[init]") {
+        Line::from(vec![
+            Span::styled(
+                "  init ",
+                Style::default().fg(DIM).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(rest.trim_start().to_string(), Style::default().fg(DIM)),
+        ])
     } else if line == "(no output yet)" || line.starts_with("(partial)") {
         Line::from(vec![
             Span::raw("  "),
@@ -804,15 +820,15 @@ fn detail_lines(app: &MonitorApp, max_transcript_lines: usize) -> Vec<Line<'stat
         Style::default().fg(DIM_WHITE),
     ));
     lines.push(Line::default());
+    lines.push(section_header("Artifacts"));
+    lines.extend(render_plain_block(artifacts(run), Style::default().fg(DIM)));
+    lines.push(Line::default());
     lines.push(section_header("Transcript"));
     lines.extend(
         transcript_text(app, max_transcript_lines)
             .into_iter()
             .map(transcript_line),
     );
-    lines.push(Line::default());
-    lines.push(section_header("Artifacts"));
-    lines.extend(render_plain_block(artifacts(run), Style::default().fg(DIM)));
     lines
 }
 
@@ -1132,16 +1148,11 @@ fn draw_run_info_overlay(frame: &mut ratatui::Frame<'_>, app: &MonitorApp, area:
         return;
     };
     let text = run_info_text(run);
-    let content_width = text
-        .iter()
-        .map(|line| line.chars().count())
-        .max()
-        .unwrap_or(20) as u16;
-    let width = content_width
-        .saturating_add(6)
-        .clamp(42, area.width.saturating_sub(4).max(1));
-    let height = (text.len() as u16)
-        .saturating_add(4)
+    let width = area.width.saturating_sub(4).clamp(42, 96);
+    let value_width = width.saturating_sub(31).max(8) as usize;
+    let lines = run_info_lines(text, value_width);
+    let height = (lines.len() as u16)
+        .saturating_add(3)
         .min(area.height.saturating_sub(2).max(1));
     let popup = Rect {
         x: area.x + area.width.saturating_sub(width) / 2,
@@ -1158,18 +1169,54 @@ fn draw_run_info_overlay(frame: &mut ratatui::Frame<'_>, app: &MonitorApp, area:
         .style(Style::default().bg(BG));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
-    let mut lines = vec![Line::default()];
-    lines.extend(text.into_iter().map(|line| {
-        let Some((key, value)) = line.split_once(": ") else {
-            return Line::from(Span::styled(line, Style::default().fg(DIM_WHITE)));
-        };
-        Line::from(vec![
-            Span::raw("  "),
-            Span::styled(format!("{key:<22}"), Style::default().fg(DIM)),
-            Span::styled(value.to_string(), Style::default().fg(WHITE)),
-        ])
-    }));
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn run_info_lines(text: Vec<String>, value_width: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::default()];
+    for line in text {
+        let Some((key, value)) = line.split_once(": ") else {
+            lines.push(Line::from(Span::styled(
+                line,
+                Style::default().fg(DIM_WHITE),
+            )));
+            continue;
+        };
+        let wrapped = wrap_field_value(value, value_width);
+        for (index, chunk) in wrapped.into_iter().enumerate() {
+            let key_text = if index == 0 {
+                format!("{key:<22}")
+            } else {
+                " ".repeat(22)
+            };
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(key_text, Style::default().fg(DIM)),
+                Span::styled(chunk, Style::default().fg(WHITE)),
+            ]));
+        }
+    }
+    lines
+}
+
+fn wrap_field_value(value: &str, width: usize) -> Vec<String> {
+    if value.is_empty() {
+        return vec![String::new()];
+    }
+    let width = width.max(1);
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    for ch in value.chars() {
+        if current.chars().count() == width {
+            chunks.push(current);
+            current = String::new();
+        }
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
 }
 
 fn draw_help(frame: &mut ratatui::Frame<'_>, app: &MonitorApp) {
@@ -1466,6 +1513,43 @@ mod tests {
             profile_label(&app.runs[app.filtered_history_indices[0]]),
             "alpha"
         );
+    }
+
+    #[test]
+    fn run_info_lines_wrap_long_values() {
+        let lines = run_info_lines(vec!["args: abcdefghij".to_string()], 4);
+        let rendered = lines
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .into_iter()
+                    .map(|span| span.content.into_owned())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rendered[1], "  args                  abcd");
+        assert_eq!(rendered[2], "                        efgh");
+        assert_eq!(rendered[3], "                        ij");
+    }
+
+    #[test]
+    fn detail_places_artifacts_before_transcript() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_active_run(
+            dir.path().join("run-a"),
+            "a",
+            "2026-06-09T00:00:00Z",
+            "first",
+        );
+        let mut app = MonitorApp::new(
+            MonitorCore::new(dir.path().to_path_buf()),
+            Duration::from_millis(50),
+        );
+        app.poll().unwrap();
+        let lines = detail_text(&app, usize::MAX);
+        let artifacts = lines.iter().position(|line| line == "Artifacts").unwrap();
+        let transcript = lines.iter().position(|line| line == "Transcript").unwrap();
+        assert!(artifacts < transcript);
     }
 
     #[test]

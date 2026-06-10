@@ -131,6 +131,7 @@ fn render_claude(value: &Value, state: &mut RenderState) -> Vec<String> {
                 short_id(session)
             )]
         }
+        Some("system") => render_claude_system(value),
         Some("assistant") => render_claude_assistant(value, state),
         Some("user") => render_claude_user(value, state),
         Some("result") => vec![render_claude_result(value)],
@@ -143,6 +144,37 @@ fn render_claude(value: &Value, state: &mut RenderState) -> Vec<String> {
             truncate(&value.to_string(), TRUNC_DEFAULT)
         )],
     }
+}
+
+fn render_claude_system(value: &Value) -> Vec<String> {
+    let event = str_field(value, "hook_event")
+        .or_else(|| str_field(value, "subtype"))
+        .or_else(|| str_field(value, "type"))
+        .unwrap_or("system");
+    let hook = str_field(value, "hook_name");
+    let outcome = str_field(value, "outcome");
+    let exit_code = value.get("exit_code").and_then(Value::as_i64);
+    let output = str_field(value, "output").unwrap_or("").trim();
+
+    let mut fields = Vec::new();
+    if let Some(hook) = hook {
+        fields.push(format!("hook={hook}"));
+    }
+    if let Some(outcome) = outcome {
+        fields.push(format!("outcome={outcome}"));
+    }
+    if let Some(exit_code) = exit_code {
+        fields.push(format!("exit={exit_code}"));
+    }
+    if !output.is_empty() {
+        fields.push(format!("output={}", truncate(output, 160)));
+    }
+    let suffix = if fields.is_empty() {
+        String::new()
+    } else {
+        format!("  {}", fields.join("  "))
+    };
+    vec![format!("[system] {event}{suffix}")]
 }
 
 fn render_claude_assistant(value: &Value, state: &mut RenderState) -> Vec<String> {
@@ -588,5 +620,19 @@ mod tests {
         let rendered = renderer.render_jsonl_line("not json");
         assert!(rendered.value.is_none());
         assert_eq!(rendered.lines, vec!["[raw]   not json"]);
+    }
+
+    #[test]
+    fn test_claude_system_hook_renders_as_summary() {
+        let mut renderer = CompactRenderer::new(RendererKind::Claude);
+        let lines = renderer.render_value(&json(
+            r##"{"type":"system","subtype":"hook_response","hook_event":"SessionStart","hook_name":"SessionStart:startup","outcome":"success","exit_code":0,"output":"# Taskwarrior Agent Primer\n\n## Core Logic\n- State: pending"}"##,
+        ));
+        assert_eq!(
+            lines,
+            vec![
+                "[system] SessionStart  hook=SessionStart:startup  outcome=success  exit=0  output=# Taskwarrior Agent Primer ## Core Logic - State: pending"
+            ]
+        );
     }
 }
