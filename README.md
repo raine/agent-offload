@@ -378,6 +378,8 @@ or click the prompt section to expand long markdown prompts, `G` to follow live
 output at the bottom, `Esc` to return from detail, `/` to filter history, `?` for
 help, and `q` to quit.
 
+![sideagent monitor showing a headless run detail](meta/sideagent-monitor-detail-20260613.webp)
+
 Options:
 
 | Option                        | Description                                      |
