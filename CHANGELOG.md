@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.9 (2026-06-13)
+
+- Added `sideagent monitor`, a terminal UI for watching active and completed headless runs.
+- Headless runs for known streaming interfaces now save run metadata, prompts, and stdout logs in a private run archive.
+- The monitor now shows live transcript output, expandable prompts, run metadata, history filtering, and keyboard or mouse navigation.
+- Stale active runs are now detected and moved to history as failed instead of staying active forever.
+
 ## v0.1.8 (2026-06-08)
 
 - Headless Claude, Codex, Cursor, and OpenCode runs now use each CLI's structured output to detect when delegated work finishes.
