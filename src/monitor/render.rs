@@ -51,6 +51,7 @@ struct RenderState {
     tool_num_by_id: HashMap<String, usize>,
     tool_name_by_id: HashMap<String, String>,
     next_tool_num: usize,
+    cursor_thinking: String,
 }
 
 impl RenderState {
@@ -299,26 +300,134 @@ fn render_cursor(value: &Value, state: &mut RenderState) -> Vec<String> {
                 render_claude_assistant(value, state)
             }
         }
-        Some("tool_call") => {
-            let id = str_field(value, "id")
-                .or_else(|| str_field(value, "tool_call_id"))
-                .unwrap_or("");
-            let name = str_field(value, "name")
-                .or_else(|| str_field(value, "tool"))
-                .unwrap_or("tool");
-            let tag = state.tag_for_tool(id, Some(name));
-            match str_field(value, "subtype") {
-                Some("started") => vec![format!(
-                    "[tool→] {tag}  {}",
-                    format_tool_input(value.get("input"))
-                )],
-                Some("completed") => vec![format!("[tool✓] {tag}  completed")],
-                Some("failed") => vec![format!("[tool✗] {tag}  failed")],
-                other => vec![format!("[tool]  {tag}  subtype={}", other.unwrap_or("?"))],
-            }
-        }
+        Some("thinking") => render_cursor_thinking(value, state),
+        Some("tool_call") => render_cursor_tool_call(value, state),
         Some("result") => vec![render_cursor_result(value)],
         _ => render_claude(value, state),
+    }
+}
+
+fn render_cursor_thinking(value: &Value, state: &mut RenderState) -> Vec<String> {
+    match str_field(value, "subtype") {
+        Some("delta") => {
+            if let Some(text) = str_field(value, "text") {
+                state.cursor_thinking.push_str(text);
+            }
+            Vec::new()
+        }
+        Some("completed") => {
+            let text = state.cursor_thinking.trim();
+            if text.is_empty() {
+                Vec::new()
+            } else {
+                let lines = vec![format!("[think] {}", truncate(text, TRUNC_DEFAULT))];
+                state.cursor_thinking.clear();
+                lines
+            }
+        }
+        Some(other) => vec![format!("[think] {other}")],
+        None => Vec::new(),
+    }
+}
+
+fn render_cursor_tool_call(value: &Value, state: &mut RenderState) -> Vec<String> {
+    let id = str_field(value, "id")
+        .or_else(|| str_field(value, "tool_call_id"))
+        .or_else(|| str_field(value, "call_id"))
+        .or_else(|| {
+            value
+                .get("tool_call")
+                .and_then(|tool_call| str_field(tool_call, "toolCallId"))
+        })
+        .unwrap_or("");
+    let detail = cursor_tool_detail(value);
+    let tag = state.tag_for_tool(id, Some(&detail.name));
+    match str_field(value, "subtype") {
+        Some("started") => {
+            if detail.input.is_empty() {
+                vec![format!("[tool→] {tag}")]
+            } else {
+                vec![format!("[tool→] {tag}  {}", detail.input)]
+            }
+        }
+        Some("completed") => vec![format!("[tool✓] {tag}  completed{}", detail.result)],
+        Some("failed") => vec![format!("[tool✗] {tag}  failed{}", detail.result)],
+        other => vec![format!("[tool]  {tag}  subtype={}", other.unwrap_or("?"))],
+    }
+}
+
+struct CursorToolDetail {
+    name: String,
+    input: String,
+    result: String,
+}
+
+fn cursor_tool_detail(value: &Value) -> CursorToolDetail {
+    if let Some(name) = str_field(value, "name").or_else(|| str_field(value, "tool")) {
+        return CursorToolDetail {
+            name: name.to_string(),
+            input: format_tool_input(value.get("input")),
+            result: String::new(),
+        };
+    }
+
+    let Some(tool_call) = value.get("tool_call").and_then(Value::as_object) else {
+        return CursorToolDetail {
+            name: "tool".to_string(),
+            input: format_tool_input(value.get("input")),
+            result: String::new(),
+        };
+    };
+
+    for (key, value) in tool_call {
+        if !key.ends_with("ToolCall") {
+            continue;
+        }
+        let name = key.trim_end_matches("ToolCall").to_string();
+        let input = format_tool_input(value.get("args"));
+        let result = cursor_tool_result(value.get("result"));
+        return CursorToolDetail {
+            name,
+            input,
+            result,
+        };
+    }
+
+    CursorToolDetail {
+        name: "tool".to_string(),
+        input: String::new(),
+        result: String::new(),
+    }
+}
+
+fn cursor_tool_result(value: Option<&Value>) -> String {
+    let Some(value) = value else {
+        return String::new();
+    };
+    if let Some(error) = value.get("error") {
+        return format!("  error={}", truncate(&error.to_string(), 200));
+    }
+    let Some(success) = value.get("success") else {
+        return preview_suffix(&value.to_string(), 200);
+    };
+
+    let mut fields = Vec::new();
+    if let Some(total_lines) = success.get("totalLines").and_then(Value::as_i64) {
+        fields.push(format!("lines={total_lines}"));
+    }
+    if let Some(file_size) = success.get("fileSize").and_then(Value::as_i64) {
+        fields.push(format!("bytes={file_size}"));
+    }
+    if let Some(exit_code) = success.get("exitCode").and_then(Value::as_i64) {
+        fields.push(format!("exit={exit_code}"));
+    }
+    if let Some(output) = str_field(success, "output").or_else(|| str_field(success, "content")) {
+        fields.push(truncate(output, 200));
+    }
+    if fields.is_empty() {
+        String::new()
+    } else {
+        format!("  {}", fields.join("  "))
     }
 }
 
@@ -498,22 +607,50 @@ fn format_tool_input(input: Option<&Value>) -> String {
     match input {
         Value::Object(map) => map
             .iter()
-            .map(|(key, value)| {
-                if key == "command" {
-                    format!(
-                        "{key}={}",
-                        backtick(value.as_str().unwrap_or(&value.to_string()))
-                    )
-                } else if let Some(value) = value.as_str() {
-                    format!("{key}={}", truncate(value, 200))
-                } else {
-                    format!("{key}={}", truncate(&value.to_string(), 200))
-                }
-            })
+            .filter(|(key, value)| include_tool_input_field(key, value))
+            .map(|(key, value)| format_tool_input_field(key, value))
             .collect::<Vec<_>>()
             .join("  "),
         Value::String(value) => truncate(value, 200),
         other => truncate(&other.to_string(), 200),
+    }
+}
+
+fn include_tool_input_field(key: &str, value: &Value) -> bool {
+    if matches!(
+        key,
+        "toolCallId"
+            | "conversationId"
+            | "parsingResult"
+            | "hookAdditionalContexts"
+            | "fileOutputThresholdBytes"
+            | "hardTimeout"
+            | "timeoutBehavior"
+    ) {
+        return false;
+    }
+    match value {
+        Value::Null => false,
+        Value::String(value) => !value.is_empty(),
+        _ => true,
+    }
+}
+
+fn format_tool_input_field(key: &str, value: &Value) -> String {
+    if key == "command" {
+        format!(
+            "{key}={}",
+            backtick(value.as_str().unwrap_or(&value.to_string()))
+        )
+    } else if key == "streamContent" {
+        format!(
+            "content={}",
+            truncate(value.as_str().unwrap_or(&value.to_string()), 200)
+        )
+    } else if let Some(value) = value.as_str() {
+        format!("{key}={}", truncate(value, 200))
+    } else {
+        format!("{key}={}", truncate(&value.to_string(), 200))
     }
 }
 
@@ -580,6 +717,55 @@ mod tests {
         assert_eq!(
             result[0],
             "[turn]  ok  turns=1  dur=1.2s  in=1.2k  out=300  cost=$0.0100"
+        );
+    }
+
+    #[test]
+    fn test_cursor_renderer_combines_thinking_deltas() {
+        let mut renderer = CompactRenderer::new(RendererKind::Cursor);
+        let first = renderer.render_value(&json(
+            r#"{"type":"thinking","subtype":"delta","text":"All checks passed. I"}"#,
+        ));
+        let second = renderer.render_value(&json(
+            r#"{"type":"thinking","subtype":"delta","text":" will provide the final summary."}"#,
+        ));
+        let completed =
+            renderer.render_value(&json(r#"{"type":"thinking","subtype":"completed"}"#));
+
+        assert!(first.is_empty());
+        assert!(second.is_empty());
+        assert_eq!(
+            completed,
+            vec!["[think] All checks passed. I will provide the final summary."]
+        );
+    }
+
+    #[test]
+    fn test_cursor_renderer_formats_nested_tool_call() {
+        let mut renderer = CompactRenderer::new(RendererKind::Cursor);
+        let start = renderer.render_value(&json(
+            r#"{"type":"tool_call","subtype":"started","call_id":"tool_1","tool_call":{"readToolCall":{"args":{"path":"/tmp/input.txt"}},"toolCallId":"tool_1"}}"#,
+        ));
+        let end = renderer.render_value(&json(
+            r#"{"type":"tool_call","subtype":"completed","call_id":"tool_1","tool_call":{"readToolCall":{"args":{"path":"/tmp/input.txt"},"result":{"success":{"totalLines":12,"fileSize":345,"path":"/tmp/input.txt"}}},"toolCallId":"tool_1"}}"#,
+        ));
+
+        assert_eq!(start, vec!["[tool→] read#01  path=/tmp/input.txt"]);
+        assert_eq!(end, vec!["[tool✓] read#01  completed  lines=12  bytes=345"]);
+    }
+
+    #[test]
+    fn test_cursor_renderer_formats_shell_tool_call() {
+        let mut renderer = CompactRenderer::new(RendererKind::Cursor);
+        let lines = renderer.render_value(&json(
+            r#"{"type":"tool_call","subtype":"started","call_id":"tool_1","tool_call":{"shellToolCall":{"args":{"command":"just check","workingDirectory":"","timeout":300000,"toolCallId":"tool_1","parsingResult":{"parsingFailed":false},"description":"Run full repo check suite"}},"toolCallId":"tool_1"}}"#,
+        ));
+
+        assert_eq!(
+            lines,
+            vec![
+                "[tool→] shell#01  command=`just check`  description=Run full repo check suite  timeout=300000"
+            ]
         );
     }
 
