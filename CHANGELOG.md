@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.10 (2026-06-13)
+
+- The monitor now shows cleaner Cursor Agent transcripts, including combined thinking updates and more useful tool call details.
+
 ## v0.1.9 (2026-06-13)
 
 - Added `sideagent monitor`, a terminal UI for watching active and completed headless runs.
